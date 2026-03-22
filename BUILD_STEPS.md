@@ -88,7 +88,7 @@ Scope:
 - error propagation through graph state
 - LangSmith tracing for graph execution
 
-Status: pending
+Status: completed
 
 ### Step 6. Scoring Engine and `GET /scores`
 
@@ -184,7 +184,8 @@ Implemented already:
 
 ## Immediate Next Move
 
-Build Step 5:
-- define `PipelineState`
-- wire classifier, summariser, embedder, and scorer nodes
-- establish graph execution flow and error propagation
+Build Step 6:
+- implement benchmark evaluation functions
+- compare dataset summaries to anchor embeddings
+- compute category-level scores
+- expose the first scoring endpoint

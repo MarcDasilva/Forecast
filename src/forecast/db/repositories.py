@@ -47,6 +47,34 @@ class DatasetRepository:
     async def get_dataset(self, session: AsyncSession, dataset_id: uuid.UUID) -> Dataset | None:
         return await session.get(Dataset, dataset_id)
 
+    async def update_dataset(
+        self,
+        session: AsyncSession,
+        *,
+        dataset_id: uuid.UUID,
+        input_type: str | None = None,
+        raw_text: str | None = None,
+        summary: dict[str, object] | None = None,
+        status: str | None = None,
+        error_msg: str | None = None,
+    ) -> Dataset:
+        dataset = await self.get_dataset(session, dataset_id)
+        if dataset is None:
+            raise ValueError(f"Dataset {dataset_id} not found.")
+
+        if input_type is not None:
+            dataset.input_type = input_type
+        if raw_text is not None:
+            dataset.raw_text = raw_text
+        if summary is not None:
+            dataset.summary = summary
+        if status is not None:
+            dataset.status = status
+        dataset.error_msg = error_msg
+
+        await session.flush()
+        return dataset
+
     async def upsert_dataset_embedding(
         self,
         session: AsyncSession,
