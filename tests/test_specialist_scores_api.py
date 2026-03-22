@@ -98,3 +98,38 @@ def test_specialist_score_history_endpoint_exists(monkeypatch) -> None:
     assert payload["category"] == "housing"
     assert payload["current"]["score"] == 68.0
     assert len(payload["history"]) == 2
+
+
+def test_run_specialist_endpoint_exists(monkeypatch) -> None:
+    async def fake_run(category: str):
+        assert category == "housing"
+        return {
+            "category": "housing",
+            "score": 64,
+            "status_label": "In Progress",
+        }
+
+    monkeypatch.setattr("forecast.api.specialist_scores.run_specialist_agent", fake_run)
+
+    client = TestClient(app)
+    response = client.post("/specialist-scores/run/housing")
+
+    assert response.status_code == 200
+    assert response.json()["result"]["category"] == "housing"
+    assert response.json()["result"]["score"] == 64
+
+
+def test_run_all_specialists_endpoint_exists(monkeypatch) -> None:
+    async def fake_run_all():
+        return [
+            {"category": "housing", "score": 64},
+            {"category": "healthcare", "score": 51},
+        ]
+
+    monkeypatch.setattr("forecast.api.specialist_scores.run_all_specialist_agents", fake_run_all)
+
+    client = TestClient(app)
+    response = client.post("/specialist-scores/run-all")
+
+    assert response.status_code == 200
+    assert len(response.json()["results"]) == 2
