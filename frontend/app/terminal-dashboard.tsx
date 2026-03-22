@@ -1,5 +1,6 @@
 "use client";
 
+import Dither from "@/components/Dither";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type ScoresResponse = {
@@ -41,6 +42,24 @@ type DatasetListResponse = {
   page_size: number;
   total: number;
   items: DatasetListItem[];
+};
+
+type RelevantDatasetItem = {
+  id: string;
+  source_ref: string;
+  input_type: string;
+  created_at: string | null;
+  title: string | null;
+  geography: string | null;
+  time_period: string | null;
+  final_score: number;
+  benchmark_eval: number;
+  similarity: number;
+};
+
+type RelevantDatasetsResponse = {
+  category: string;
+  items: RelevantDatasetItem[];
 };
 
 type DatasetScoreDetail = {
@@ -85,12 +104,21 @@ type AgentChatResponse = {
   tool_calls: { name?: string; result?: string }[];
 };
 
+type IngestResponse = {
+  dataset_id: string;
+  status: string;
+  message: string;
+};
+
 type ProcessEntry = {
   id: string;
   tone: "info" | "success" | "warn";
   message: string;
   createdAt: string;
 };
+
+type TerminalViewMode = "intelligence" | "ingest";
+type DatasourceMode = "endpoint" | "file" | "webscrape" | "transcript";
 
 const CATEGORY_ORDER = [
   "housing",
@@ -105,7 +133,6 @@ const API_BASE_URL =
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  const method = init?.method?.toUpperCase() ?? "GET";
   const hasBody = init?.body !== undefined && init?.body !== null;
 
   if (hasBody && !headers.has("Content-Type")) {
@@ -147,6 +174,30 @@ function truncateMiddle(value: string, length = 48) {
   return `${value.slice(0, head)}...${value.slice(-tail)}`;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function formatCategoryLabel(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function dedupeRelevantSources(items: RelevantDatasetItem[]) {
+  const seen = new Set<string>();
+
+  return items.filter((item) => {
+    const key = `${item.source_ref.trim().toLowerCase()}::${(item.title ?? "").trim().toLowerCase()}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
 function buildTerminalText(args: {
   scores: ScoresResponse | null;
   specialists: SpecialistScoresResponse | null;
@@ -169,15 +220,15 @@ function buildTerminalText(args: {
     ...CATEGORY_ORDER.map((category) => {
       const aggregate = scores?.scores[category];
       const specialistScore = specialists?.scores[category]?.score;
-      const specialistStatus = specialists?.scores[category]?.status_label ?? "NO RUN";
+      const specialistBand = specialists?.scores[category]?.status_label ?? "NO RUN";
       return `${category.toUpperCase().padEnd(16)} agg=${String(
         aggregate?.toFixed?.(2) ?? "--",
-      ).padStart(6)} | specialist=${String(specialistScore ?? "--").padStart(5)} | ${specialistStatus}`;
+      ).padStart(6)} | specialist=${String(specialistScore ?? "--").padStart(5)} | band=${specialistBand}`;
     }),
     "",
     `FOCUS CATEGORY : ${selectedCategory.toUpperCase()}`,
     `AGENT          : ${specialist?.agent_name ?? "--"}`,
-    `STATUS         : ${specialist?.status_label ?? "--"}`,
+    `BAND           : ${specialist?.status_label ?? "--"}`,
     `CONFIDENCE     : ${specialist ? `${Math.round(specialist.confidence * 100)}%` : "--"}`,
     "",
     "RATIONALE",
@@ -234,11 +285,38 @@ export function TerminalDashboard() {
   const [selectedCategory, setSelectedCategory] = useState<string>("housing");
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [selectedDataset, setSelectedDataset] = useState<DatasetDetailResponse | null>(null);
-  const [linkedSources, setLinkedSources] = useState<DatasetDetailResponse[]>([]);
+  const [relevantSources, setRelevantSources] = useState<RelevantDatasetItem[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
   const [processEntries, setProcessEntries] = useState<ProcessEntry[]>([]);
   const [showProcessPanel, setShowProcessPanel] = useState(false);
+  const [terminalViewMode, setTerminalViewMode] = useState<TerminalViewMode>("intelligence");
+  const [isSourceInspectorOpen, setIsSourceInspectorOpen] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [isEditingInspectorName, setIsEditingInspectorName] = useState(false);
+  const [isRenamingDataset, setIsRenamingDataset] = useState(false);
+  const [datasourceMode, setDatasourceMode] = useState<DatasourceMode>("endpoint");
+  const [datasourceUrl, setDatasourceUrl] = useState("");
+  const [webscrapeUrl, setWebscrapeUrl] = useState("");
+  const [transcriptText, setTranscriptText] = useState("");
+  const [scrapeTargets, setScrapeTargets] = useState("");
+  const [datasourceLabel, setDatasourceLabel] = useState("");
+  const [datasourceFile, setDatasourceFile] = useState<File | null>(null);
+  const [isSubmittingDatasource, setIsSubmittingDatasource] = useState(false);
+  const [ingestDatasetId, setIngestDatasetId] = useState<string | null>(null);
+  const [ingestResult, setIngestResult] = useState<DatasetDetailResponse | null>(null);
+  const [ingestConsole, setIngestConsole] = useState(
+    [
+      "DATASOURCE INGEST CONSOLE",
+      "=========================",
+      "",
+      "Paste an API endpoint, interview transcript,",
+      "or attach a CSV file.",
+      "The dataset will be ingested, summarized, embedded, scored,",
+      "and stored in the backend, while progress is mirrored in the",
+      "process window below.",
+    ].join("\n"),
+  );
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -308,6 +386,7 @@ export function TerminalDashboard() {
   useEffect(() => {
     if (!selectedDatasetId) {
       setSelectedDataset(null);
+      setRenameDraft("");
       return;
     }
 
@@ -336,40 +415,45 @@ export function TerminalDashboard() {
   }, [selectedDatasetId]);
 
   useEffect(() => {
-    const sourceIds = specialists?.scores[selectedCategory]?.source_dataset_ids ?? [];
-    if (!sourceIds.length) {
-      setLinkedSources([]);
-      return;
-    }
+    setRenameDraft(selectedDataset?.summary?.title ?? "");
+  }, [selectedDataset?.id, selectedDataset?.summary?.title]);
 
+  useEffect(() => {
     let active = true;
 
-    async function loadSourceDetails() {
+    async function loadRelevantSources() {
       try {
-        const details = await Promise.all(
-          sourceIds.slice(0, 5).map((datasetId) =>
-            fetchJson<DatasetDetailResponse>(`/datasets/${datasetId}`),
-          ),
-        );
-
+        const payload = await fetchJson<RelevantDatasetsResponse>(`/datasets/relevant/${selectedCategory}`);
         if (active) {
-          setLinkedSources(details);
+          setRelevantSources(dedupeRelevantSources(payload.items));
         }
       } catch (sourceError) {
         if (active) {
           setError(
-            sourceError instanceof Error ? sourceError.message : "Failed to load linked sources.",
+            sourceError instanceof Error ? sourceError.message : "Failed to load relevant sources.",
           );
         }
       }
     }
 
-    void loadSourceDetails();
+    void loadRelevantSources();
 
     return () => {
       active = false;
     };
-  }, [selectedCategory, specialists]);
+  }, [selectedCategory]);
+
+  useEffect(() => {
+    if (terminalViewMode === "ingest") {
+      setIsSourceInspectorOpen(false);
+      setIsEditingInspectorName(false);
+    }
+  }, [terminalViewMode]);
+
+  useEffect(() => {
+    setIsSourceInspectorOpen(false);
+    setIsEditingInspectorName(false);
+  }, [selectedCategory]);
 
   const terminalText = useMemo(
     () =>
@@ -383,6 +467,223 @@ export function TerminalDashboard() {
   );
 
   const selectedSpecialist = specialists?.scores[selectedCategory] ?? null;
+  const sourceInspectorDataset =
+    isSourceInspectorOpen && selectedDataset?.id === selectedDatasetId ? selectedDataset : null;
+  const sourceInspectorMetrics = sourceInspectorDataset?.summary?.key_metrics ?? {};
+  const sourceInspectorScores = sourceInspectorDataset
+    ? Object.entries(sourceInspectorDataset.scores).sort(
+        (left, right) => right[1].final_score - left[1].final_score,
+      )
+    : [];
+
+  function resetDatasourceForm(nextMode: DatasourceMode) {
+    setDatasourceMode(nextMode);
+    setDatasourceUrl("");
+    setWebscrapeUrl("");
+    setTranscriptText("");
+    setScrapeTargets("");
+    setDatasourceLabel("");
+    setDatasourceFile(null);
+  }
+
+  async function pollIngestDataset(datasetId: string) {
+    appendProcessEntry(`polling dataset lifecycle -> ${datasetId}`, "info");
+
+    for (let attempt = 1; attempt <= 30; attempt += 1) {
+      const dataset = await fetchJson<DatasetDetailResponse>(`/datasets/${datasetId}`);
+      setIngestResult(dataset);
+      setSelectedDatasetId(dataset.id);
+
+      const summaryTitle = dataset.summary?.title ?? "--";
+      const scoreCategories = Object.keys(dataset.scores ?? {});
+      const consoleLines = [
+        "DATASOURCE INGEST CONSOLE",
+        "=========================",
+        "",
+        `DATASET ID     : ${dataset.id}`,
+        `SOURCE         : ${dataset.source_ref}`,
+        `INPUT TYPE     : ${dataset.input_type}`,
+        `STATUS         : ${dataset.status}`,
+        `TITLE          : ${summaryTitle}`,
+        `GEOGRAPHY      : ${dataset.summary?.geography ?? "--"}`,
+        `TIME PERIOD    : ${dataset.summary?.time_period ?? "--"}`,
+        "",
+        "KEY METRICS",
+        "-----------",
+        ...(Object.entries(dataset.summary?.key_metrics ?? {}).length
+          ? Object.entries(dataset.summary?.key_metrics ?? {}).map(
+              ([key, value]) => `${key} = ${value ?? "null"}`,
+            )
+          : ["No key metrics extracted yet."]),
+        "",
+        "SCORE RESULTS",
+        "-------------",
+        ...(scoreCategories.length
+          ? scoreCategories.map((category) => {
+              const detail = dataset.scores[category];
+              return `${category} final=${detail.final_score.toFixed(2)} sim=${detail.similarity.toFixed(3)} bench=${detail.benchmark_eval.toFixed(3)}`;
+            })
+          : ["Scores not available yet."]),
+      ];
+
+      setIngestConsole(consoleLines.join("\n"));
+
+      if (attempt === 1) {
+        appendProcessEntry(`dataset record created -> ${datasetId}`, "info");
+      }
+
+      appendProcessEntry(`attempt ${attempt} | dataset status=${dataset.status}`, "info");
+
+      if (dataset.status === "complete") {
+        appendProcessEntry(`ingest complete -> ${summaryTitle}`, "success");
+        appendProcessEntry(`stored summary and scores for ${dataset.id}`, "success");
+        await loadDashboardData();
+        return;
+      }
+
+      if (dataset.status === "error") {
+        const message = dataset.error_msg ?? "Unknown ingest failure.";
+        appendProcessEntry(`ingest failed -> ${message}`, "warn");
+        setError(message);
+        return;
+      }
+
+      if (attempt === 2) {
+        appendProcessEntry("pipeline step observed -> classifier / summariser / embedder / scorer", "info");
+      }
+
+      await sleep(1500);
+    }
+
+    appendProcessEntry(`ingest polling timed out for ${datasetId}`, "warn");
+  }
+
+  async function submitDatasource() {
+    if (isSubmittingDatasource) {
+      return;
+    }
+
+    const isEndpointMode = datasourceMode === "endpoint";
+    const isWebscrapeMode = datasourceMode === "webscrape";
+    const isTranscriptMode = datasourceMode === "transcript";
+    const endpointUrl = datasourceUrl.trim();
+    const nextWebscrapeUrl = webscrapeUrl.trim();
+    const nextTranscriptText = transcriptText.trim();
+
+    if (isEndpointMode && !endpointUrl) {
+      setError("Paste an endpoint URL before submitting.");
+      return;
+    }
+
+    if (isWebscrapeMode && !nextWebscrapeUrl) {
+      setError("Paste a web page URL before submitting.");
+      return;
+    }
+
+    if (isTranscriptMode && !nextTranscriptText) {
+      setError("Paste an interview transcript before submitting.");
+      return;
+    }
+
+    if (datasourceMode === "file" && !datasourceFile) {
+      setError("Attach a CSV file before submitting.");
+      return;
+    }
+
+    setError(null);
+    setIsSubmittingDatasource(true);
+    setTerminalViewMode("ingest");
+    setShowProcessPanel(true);
+    setIngestResult(null);
+    setIngestDatasetId(null);
+    setIngestConsole(
+      [
+        "DATASOURCE INGEST CONSOLE",
+        "=========================",
+        "",
+        `MODE           : ${isEndpointMode ? "endpoint" : isWebscrapeMode ? "webscrape" : isTranscriptMode ? "interview transcript" : "csv upload"}`,
+        `LABEL          : ${datasourceLabel || "--"}`,
+        `SOURCE         : ${
+          isEndpointMode
+            ? endpointUrl
+            : isWebscrapeMode
+              ? nextWebscrapeUrl
+              : isTranscriptMode
+                ? datasourceLabel.trim() || "inline interview transcript"
+                : datasourceFile?.name ?? "--"
+        }`,
+        `SCRAPE TARGETS : ${isWebscrapeMode ? scrapeTargets || "auto-derived" : "--"}`,
+        `TRANSCRIPT LEN : ${isTranscriptMode ? `${nextTranscriptText.length} chars` : "--"}`,
+        "",
+        "Preparing request payload...",
+      ].join("\n"),
+    );
+    appendProcessEntry(
+      `datasource submission started -> ${
+        isEndpointMode
+          ? endpointUrl
+          : isWebscrapeMode
+            ? nextWebscrapeUrl
+            : isTranscriptMode
+              ? datasourceLabel.trim() || "interview transcript"
+              : datasourceFile?.name ?? "file"
+      }`,
+      "info",
+    );
+
+    try {
+      const formData = new FormData();
+      if (datasourceLabel.trim()) {
+        formData.set("label", datasourceLabel.trim());
+      }
+
+      if (isEndpointMode) {
+        formData.set("endpoint_url", endpointUrl);
+        appendProcessEntry("dispatch ingest endpoint request", "info");
+      } else if (isWebscrapeMode) {
+        formData.set("webscrape_url", nextWebscrapeUrl);
+        if (scrapeTargets.trim()) {
+          formData.set("scrape_targets", scrapeTargets.trim());
+        }
+        appendProcessEntry("dispatch webscrape request and await extracted payload", "info");
+      } else if (isTranscriptMode) {
+        formData.set("transcript_text", nextTranscriptText);
+        appendProcessEntry("dispatch interview transcript request", "info");
+      } else if (datasourceFile) {
+        formData.set("file", datasourceFile, datasourceFile.name);
+        appendProcessEntry("dispatch csv upload request", "info");
+      }
+
+      const response = await fetch(`${API_BASE_URL}/ingest`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const payload = (await response.json()) as IngestResponse;
+      setIngestDatasetId(payload.dataset_id);
+      appendProcessEntry(`dataset queued -> ${payload.dataset_id}`, "success");
+      appendProcessEntry("waiting for pipeline status changes in backend", "info");
+
+      setIngestConsole((current) =>
+        `${current}\nQueued dataset: ${payload.dataset_id}\nBackend message: ${payload.message}`,
+      );
+
+      await pollIngestDataset(payload.dataset_id);
+      resetDatasourceForm(datasourceMode);
+    } catch (submitError) {
+      const message =
+        submitError instanceof Error ? submitError.message : "Datasource submission failed.";
+      setError(message);
+      appendProcessEntry(`datasource ingest failed | ${message}`, "warn");
+      setIngestConsole((current) => `${current}\n\nERROR\n-----\n${message}`);
+    } finally {
+      setIsSubmittingDatasource(false);
+    }
+  }
 
   async function runSingleSpecialist(category: string) {
     setRunningCategory(category);
@@ -394,7 +695,7 @@ export function TerminalDashboard() {
         method: "POST",
       });
       appendProcessEntry(
-        `${category} completed | score=${payload.result.score} | status=${payload.result.status_label}`,
+        `${category} completed | score=${payload.result.score} | band=${payload.result.status_label}`,
         "success",
       );
       appendProcessEntry(`refreshing dashboard after ${category} run`, "info");
@@ -414,18 +715,22 @@ export function TerminalDashboard() {
     appendProcessEntry("dispatch all specialist agents", "info");
 
     try {
-      appendProcessEntry("sequencing housing, employment, transportation, healthcare, placemaking", "info");
+      appendProcessEntry("dispatching housing, employment, transportation, healthcare, placemaking to parallel workers", "info");
       const payload = await fetchJson<RunAllSpecialistsResponse>("/specialist-scores/run-all", {
         method: "POST",
       });
       payload.results.forEach((result) => {
         appendProcessEntry(
-          `${result.category} persisted | score=${result.score} | status=${result.status_label}`,
+          `${result.category} persisted | score=${result.score} | band=${result.status_label}`,
           "success",
         );
       });
       appendProcessEntry("refreshing dashboard after full specialist sweep", "info");
       await loadDashboardData();
+      const latestResult = payload.results[payload.results.length - 1];
+      if (latestResult?.category) {
+        setSelectedCategory(latestResult.category);
+      }
     } catch (runError) {
       const message = runError instanceof Error ? runError.message : "Failed to run all agents.";
       setError(message);
@@ -479,14 +784,62 @@ export function TerminalDashboard() {
     }
   }
 
+  async function renameSelectedDataset() {
+    if (!selectedDatasetId || !renameDraft.trim() || isRenamingDataset) {
+      return;
+    }
+
+    setIsRenamingDataset(true);
+    setError(null);
+
+    try {
+      const payload = await fetchJson<DatasetDetailResponse>(`/datasets/${selectedDatasetId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ summary_title: renameDraft.trim() }),
+      });
+
+      setSelectedDataset(payload);
+      setRenameDraft(payload.summary?.title ?? "");
+      setIsEditingInspectorName(false);
+      setRelevantSources((current) =>
+        current.map((item) =>
+          item.id === payload.id
+            ? { ...item, title: payload.summary?.title ?? item.title }
+            : item,
+        ),
+      );
+      appendProcessEntry(`summary title updated -> ${payload.summary?.title ?? "--"}`, "success");
+    } catch (renameError) {
+      const message =
+        renameError instanceof Error ? renameError.message : "Failed to rename dataset.";
+      setError(message);
+      appendProcessEntry(`rename failed | ${message}`, "warn");
+    } finally {
+      setIsRenamingDataset(false);
+    }
+  }
+
   return (
     <main className="terminal-shell">
+      <div className="terminal-background" aria-hidden="true">
+        <Dither
+          colorNum={4}
+          disableAnimation={false}
+          enableMouseInteraction={false}
+          mouseRadius={1.15}
+          pixelSize={3}
+          waveAmplitude={0.36}
+          waveColor={[0.4, 0.17, 0.06]}
+          waveFrequency={2.05}
+          waveSpeed={0.04}
+        />
+      </div>
       <div className="scanlines" />
       <section className="terminal-frame">
         <header className="hero-bar">
           <div>
-            <p className="eyebrow">Forecast / Bloomberg-Style Terminal</p>
-            <h1>MUNICIPAL INTELLIGENCE DASHBOARD</h1>
+            <p className="eyebrow">Forecast</p>
+            <h1>WATERLOO REGION 1 MILLION DASHBOARD</h1>
           </div>
           <div className="hero-meta">
             <span>{isLoading ? "BOOTING" : "LIVE"}</span>
@@ -503,6 +856,13 @@ export function TerminalDashboard() {
         </section>
 
         <section className="control-bar">
+          <button
+            className={`terminal-button${terminalViewMode === "ingest" ? " terminal-button-primary" : ""}`}
+            onClick={() => setTerminalViewMode((current) => (current === "ingest" ? "intelligence" : "ingest"))}
+            type="button"
+          >
+            {terminalViewMode === "ingest" ? "RETURN TO INTELLIGENCE" : "ADD DATASOURCE"}
+          </button>
           <button
             className="terminal-button"
             onClick={() => {
@@ -559,7 +919,7 @@ export function TerminalDashboard() {
                   <span className="score-card-label">{category}</span>
                   <strong>{aggregate?.toFixed(2) ?? "--"}</strong>
                   <span className="score-card-meta">
-                    agent {specialist?.score ?? "--"} / {specialist?.status_label ?? "NO RUN"}
+                    agent {specialist?.score ?? "--"} / band {specialist?.status_label ?? "NO RUN"}
                   </span>
                 </button>
                 <button
@@ -594,7 +954,11 @@ export function TerminalDashboard() {
                 <button
                   key={item.id}
                   className={`dataset-row${selectedDatasetId === item.id ? " dataset-row-active" : ""}`}
-                  onClick={() => setSelectedDatasetId(item.id)}
+                  onClick={() => {
+                    setIsEditingInspectorName(false);
+                    setIsSourceInspectorOpen(false);
+                    setSelectedDatasetId(item.id);
+                  }}
                   type="button"
                 >
                   <span title={item.source_ref}>{item.source_ref}</span>
@@ -610,51 +974,350 @@ export function TerminalDashboard() {
 
           <div className="panel terminal-panel">
             <div className="panel-header">
-              <span>INTELLIGENCE TEXTBOX</span>
-              <span className="panel-subtle">{selectedCategory.toUpperCase()} FOCUS</span>
+              <span>
+                {terminalViewMode === "ingest"
+                  ? "DATASOURCE CONSOLE"
+                  : isSourceInspectorOpen
+                    ? "DATASET DETAIL"
+                    : "INTELLIGENCE TEXTBOX"}
+              </span>
+              <span className="panel-subtle">
+                {terminalViewMode === "ingest"
+                  ? "INGEST + SORTING FLOW"
+                  : isSourceInspectorOpen
+                    ? sourceInspectorDataset?.summary?.title ??
+                      sourceInspectorDataset?.source_ref ??
+                      "LOADING DATASET"
+                    : `${selectedCategory.toUpperCase()} FOCUS`}
+              </span>
             </div>
 
-            <textarea
-              className="terminal-textbox"
-              readOnly
-              spellCheck={false}
-              value={error ? `${terminalText}\n\nERROR\n-----\n${error}` : terminalText}
-            />
+            {terminalViewMode === "ingest" ? (
+              <div className="datasource-console">
+                <div className="datasource-tabs">
+                  <button
+                    className={`datasource-tab${datasourceMode === "endpoint" ? " datasource-tab-active" : ""}`}
+                    onClick={() => resetDatasourceForm("endpoint")}
+                    type="button"
+                  >
+                    API ENDPOINT
+                  </button>
+                  <button
+                    className={`datasource-tab${datasourceMode === "file" ? " datasource-tab-active" : ""}`}
+                    onClick={() => resetDatasourceForm("file")}
+                    type="button"
+                  >
+                    CSV FILE
+                  </button>
+                  <button
+                    className={`datasource-tab${datasourceMode === "webscrape" ? " datasource-tab-active" : ""}`}
+                    onClick={() => resetDatasourceForm("webscrape")}
+                    type="button"
+                  >
+                    WEBSCRAPE
+                  </button>
+                  <button
+                    className={`datasource-tab${datasourceMode === "transcript" ? " datasource-tab-active" : ""}`}
+                    onClick={() => resetDatasourceForm("transcript")}
+                    type="button"
+                  >
+                    INTERVIEW
+                  </button>
+                </div>
+
+                <div className="datasource-form">
+                  <label className="datasource-field">
+                    <span>LABEL</span>
+                    <input
+                      onChange={(event) => setDatasourceLabel(event.target.value)}
+                      placeholder="Optional display label"
+                      value={datasourceLabel}
+                    />
+                  </label>
+
+                  {datasourceMode === "endpoint" ? (
+                    <label className="datasource-field datasource-field-grow">
+                      <span>API URL</span>
+                      <textarea
+                        onChange={(event) => setDatasourceUrl(event.target.value)}
+                        placeholder="https://example.com/api/..."
+                        rows={5}
+                        value={datasourceUrl}
+                      />
+                    </label>
+                  ) : datasourceMode === "webscrape" ? (
+                    <>
+                      <label className="datasource-field datasource-field-grow">
+                        <span>WEB PAGE URL</span>
+                        <textarea
+                          onChange={(event) => setWebscrapeUrl(event.target.value)}
+                          placeholder="https://example.com/page-to-scrape"
+                          rows={4}
+                          value={webscrapeUrl}
+                        />
+                      </label>
+
+                      <label className="datasource-field">
+                        <span>SCRAPE TARGETS</span>
+                        <input
+                          onChange={(event) => setScrapeTargets(event.target.value)}
+                          placeholder="Optional comma-separated targets, e.g. WRHN Midtown, current wait time"
+                          value={scrapeTargets}
+                        />
+                      </label>
+                    </>
+                  ) : datasourceMode === "transcript" ? (
+                    <label className="datasource-field datasource-field-grow">
+                      <span>INTERVIEW TRANSCRIPT</span>
+                      <textarea
+                        onChange={(event) => setTranscriptText(event.target.value)}
+                        placeholder="Paste the interview transcript here, including speaker turns if available."
+                        rows={8}
+                        value={transcriptText}
+                      />
+                    </label>
+                  ) : (
+                    <label className="datasource-field datasource-field-grow">
+                      <span>CSV ATTACHMENT</span>
+                      <input
+                        accept=".csv,text/csv"
+                        onChange={(event) => {
+                          const nextFile = event.target.files?.[0] ?? null;
+                          setDatasourceFile(nextFile);
+                        }}
+                        type="file"
+                      />
+                    </label>
+                  )}
+
+                  <div className="datasource-actions">
+                    <button
+                      className="terminal-button terminal-button-primary"
+                      disabled={isSubmittingDatasource}
+                      onClick={() => void submitDatasource()}
+                      type="button"
+                    >
+                      {isSubmittingDatasource ? "INGESTING" : "RUN SORTING PROCESS"}
+                    </button>
+                    {ingestDatasetId ? (
+                      <span className="datasource-status">DATASET {truncateMiddle(ingestDatasetId, 26)}</span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <textarea
+                  className="terminal-textbox"
+                  readOnly
+                  spellCheck={false}
+                  value={error ? `${ingestConsole}\n\nERROR\n-----\n${error}` : ingestConsole}
+                />
+              </div>
+            ) : isSourceInspectorOpen ? (
+              <div className="dataset-inspector">
+                <div className="dataset-inspector-top">
+                  <div className="dataset-inspector-heading">
+                    <span>Expanded dataset view</span>
+                    {isEditingInspectorName ? (
+                      <div className="dataset-inspector-rename">
+                        <input
+                          onChange={(event) => setRenameDraft(event.target.value)}
+                          placeholder="Summary title"
+                          value={renameDraft}
+                        />
+                        <div className="dataset-inspector-rename-actions">
+                          <button
+                            className="terminal-button terminal-button-primary"
+                            disabled={!renameDraft.trim() || isRenamingDataset}
+                            onClick={() => void renameSelectedDataset()}
+                            type="button"
+                          >
+                            {isRenamingDataset ? "Saving" : "Save"}
+                          </button>
+                          <button
+                            className="terminal-button"
+                            onClick={() => {
+                              setRenameDraft(sourceInspectorDataset?.summary?.title ?? "");
+                              setIsEditingInspectorName(false);
+                            }}
+                            type="button"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="dataset-inspector-title-row">
+                        <strong>
+                          {sourceInspectorDataset?.summary?.title ??
+                            sourceInspectorDataset?.source_ref ??
+                            "Loading dataset..."}
+                        </strong>
+                        <button
+                          aria-label="Rename dataset"
+                          className="dataset-inspector-edit"
+                          onClick={() => setIsEditingInspectorName(true)}
+                          type="button"
+                        >
+                          ✎
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    aria-label="Minimize dataset detail"
+                    className="dataset-inspector-close"
+                    onClick={() => {
+                      setIsEditingInspectorName(false);
+                      setIsSourceInspectorOpen(false);
+                    }}
+                    type="button"
+                  >
+                    X
+                  </button>
+                </div>
+
+                {sourceInspectorDataset ? (
+                  <div className="dataset-inspector-body">
+                    <section className="dataset-inspector-section">
+                      <div className="dataset-inspector-meta">
+                        <div>
+                          <span>ID</span>
+                          <strong>{sourceInspectorDataset.id}</strong>
+                        </div>
+                        <div>
+                          <span>Source</span>
+                          <strong>{sourceInspectorDataset.source_ref}</strong>
+                        </div>
+                        <div>
+                          <span>Input type</span>
+                          <strong>{sourceInspectorDataset.input_type}</strong>
+                        </div>
+                        <div>
+                          <span>Status</span>
+                          <strong>{sourceInspectorDataset.status}</strong>
+                        </div>
+                        <div>
+                          <span>Geography</span>
+                          <strong>{sourceInspectorDataset.summary?.geography ?? "--"}</strong>
+                        </div>
+                        <div>
+                          <span>Time period</span>
+                          <strong>{sourceInspectorDataset.summary?.time_period ?? "--"}</strong>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="dataset-inspector-section">
+                      <span className="dataset-inspector-label">Civic relevance</span>
+                      <p>
+                        {sourceInspectorDataset.summary?.civic_relevance ??
+                          "No civic relevance summary available for this dataset."}
+                      </p>
+                    </section>
+
+                    <section className="dataset-inspector-section">
+                      <span className="dataset-inspector-label">Data quality notes</span>
+                      <p>
+                        {sourceInspectorDataset.summary?.data_quality_notes ??
+                          "No data quality notes were generated for this dataset."}
+                      </p>
+                    </section>
+
+                    <section className="dataset-inspector-section">
+                      <span className="dataset-inspector-label">Key metrics</span>
+                      {Object.entries(sourceInspectorMetrics).length ? (
+                        <div className="dataset-inspector-grid">
+                          {Object.entries(sourceInspectorMetrics).map(([metric, value]) => (
+                            <div key={metric} className="dataset-inspector-stat">
+                              <span>{formatCategoryLabel(metric)}</span>
+                              <strong>{value ?? "null"}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="dataset-empty">No key metrics available.</div>
+                      )}
+                    </section>
+
+                    <section className="dataset-inspector-section">
+                      <span className="dataset-inspector-label">Scores</span>
+                      {sourceInspectorScores.length ? (
+                        <div className="dataset-inspector-grid">
+                          {sourceInspectorScores.map(([category, detail]) => (
+                            <div key={category} className="dataset-inspector-stat">
+                              <span>{formatCategoryLabel(category)}</span>
+                              <strong>{detail.final_score.toFixed(2)}</strong>
+                              <small>
+                                sim {detail.similarity.toFixed(3)} | bench {detail.benchmark_eval.toFixed(3)}
+                              </small>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="dataset-empty">No scores available.</div>
+                      )}
+                    </section>
+
+                    {sourceInspectorDataset.error_msg ? (
+                      <section className="dataset-inspector-section">
+                        <span className="dataset-inspector-label">Error</span>
+                        <p>{sourceInspectorDataset.error_msg}</p>
+                      </section>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="dataset-empty">Loading selected dataset...</div>
+                )}
+              </div>
+            ) : (
+              <textarea
+                className="terminal-textbox"
+                readOnly
+                spellCheck={false}
+                value={error ? `${terminalText}\n\nERROR\n-----\n${error}` : terminalText}
+              />
+            )}
           </div>
 
           <div className="panel sources-panel">
             <div className="panel-header">
-              <span>ADDITIONAL SOURCES</span>
-              <span className="panel-subtle">CONNECTED TO INGESTED DATA</span>
+              <span>RELEVANT SOURCES</span>
+              <span className="panel-subtle">{selectedCategory.toUpperCase()} RELEVANCE</span>
             </div>
 
-            <div className="sources-list">
-              {linkedSources.length ? (
-                linkedSources.map((source) => {
-                  const summary = source.summary ?? {};
-                  return (
+            <div className="sources-stack">
+              <div className="sources-list">
+                {relevantSources.length ? (
+                  relevantSources.map((source) => (
                     <button
                       key={source.id}
                       className="source-card"
-                      onClick={() => setSelectedDatasetId(source.id)}
+                      onClick={() => {
+                        setIsEditingInspectorName(false);
+                        setSelectedDatasetId(source.id);
+                        setIsSourceInspectorOpen(true);
+                      }}
                       type="button"
                     >
                       <div className="source-card-top">
-                        <strong>{summary.title ?? truncateMiddle(source.source_ref, 52)}</strong>
+                        <strong>{source.title ?? truncateMiddle(source.source_ref, 52)}</strong>
                         <span>{source.input_type}</span>
                       </div>
-                      <p>{summary.civic_relevance ?? "No civic relevance summary available."}</p>
+                      <p>
+                        score {source.final_score.toFixed(2)} | sim {source.similarity.toFixed(3)} | bench{" "}
+                        {source.benchmark_eval.toFixed(3)}
+                      </p>
                       <div className="source-card-meta">
-                        <span>{summary.geography ?? "--"}</span>
-                        <span>{summary.time_period ?? "--"}</span>
-                        <span>{source.status}</span>
+                        <span>{source.geography ?? "--"}</span>
+                        <span>{source.time_period ?? "--"}</span>
+                        <span>{formatTimestamp(source.created_at)}</span>
                       </div>
                     </button>
-                  );
-                })
-              ) : (
-                <div className="dataset-empty">No linked source datasets for the current specialist run.</div>
-              )}
+                  ))
+                ) : (
+                  <div className="dataset-empty">No relevant datasets found for the selected category.</div>
+                )}
+              </div>
             </div>
           </div>
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import OrderedDict
 from typing import Any
 
 from langchain_openai import ChatOpenAI
@@ -35,11 +36,36 @@ class SpecialistAssessmentResult(BaseModel):
     source_dataset_ids: list[str] = Field(default_factory=list)
 
 
+def status_label_for_score(score: float) -> str:
+    if score < 25:
+        return "Critical"
+    if score < 50:
+        return "Needs Attention"
+    if score < 75:
+        return "In Progress"
+    if score < 90:
+        return "Strong"
+    return "Leading"
+
+
+def merge_unique_items(*collections: list[str], limit: int) -> list[str]:
+    ordered: OrderedDict[str, None] = OrderedDict()
+    for collection in collections:
+        for item in collection:
+            if item and item not in ordered:
+                ordered[item] = None
+            if len(ordered) >= limit:
+                return list(ordered.keys())
+    return list(ordered.keys())
+
+
 class SpecialistAgentService:
     def __init__(
         self,
         *,
         category: str,
+        agent_name: str | None = None,
+        prompt_addendum: str | None = None,
         settings: Settings | None = None,
         data_service: AgentDataService | None = None,
         repository: SpecialistAssessmentRepository | None = None,
@@ -50,7 +76,8 @@ class SpecialistAgentService:
         self.settings.configure_langsmith()
         self.category = validate_category(category)
         self.context_text = load_category_context(self.category)
-        self.agent_name = f"{self.category}_specialist_agent"
+        self.agent_name = agent_name or f"{self.category}_specialist_agent"
+        self.prompt_addendum = prompt_addendum.strip() if prompt_addendum else None
         self.data_service = data_service or AgentDataService(settings=self.settings)
         self.repository = repository or SpecialistAssessmentRepository()
         self.session_factory = session_factory or get_session_factory()
@@ -80,6 +107,8 @@ Rules:
 - If evidence is limited, score conservatively and lower confidence.
 - Keep rationale concise and evidence-backed.
 - Recommendations must be specific and action-oriented.
+
+{self.prompt_addendum or ""}
 
 Benchmark context:
 {self.context_text}
@@ -133,12 +162,12 @@ Evidence snapshot:
         }
 
     @traceable(name="specialist_agent_run", run_type="chain")
-    async def run(self) -> SpecialistAssessmentResult:
+    async def evaluate(self) -> SpecialistAssessmentResult:
         resource_snapshot = await self._build_resource_snapshot()
         prompt = self._build_prompt(resource_snapshot)
         result = await self.assessment_chain.ainvoke(prompt)
 
-        normalized = SpecialistAssessmentResult(
+        return SpecialistAssessmentResult(
             category=self.category,
             score=result.score,
             status_label=result.status_label,
@@ -150,20 +179,29 @@ Evidence snapshot:
             source_dataset_ids=result.source_dataset_ids[:5],
         )
 
+    async def persist_result(
+        self,
+        result: SpecialistAssessmentResult,
+        *,
+        agent_name: str | None = None,
+    ) -> None:
         async with self.session_factory() as session:
             async with session.begin():
                 await self.repository.create_assessment(
                     session,
-                    category=normalized.category,
-                    agent_name=self.agent_name,
-                    score=normalized.score,
-                    status_label=normalized.status_label,
-                    confidence=normalized.confidence,
-                    rationale=normalized.rationale,
-                    benchmark_highlights=normalized.benchmark_highlights,
-                    recommendations=normalized.recommendations,
-                    supporting_evidence=normalized.supporting_evidence,
-                    source_dataset_ids=normalized.source_dataset_ids,
+                    category=result.category,
+                    agent_name=agent_name or self.agent_name,
+                    score=result.score,
+                    status_label=result.status_label,
+                    confidence=result.confidence,
+                    rationale=result.rationale,
+                    benchmark_highlights=result.benchmark_highlights,
+                    recommendations=result.recommendations,
+                    supporting_evidence=result.supporting_evidence,
+                    source_dataset_ids=result.source_dataset_ids,
                 )
 
+    async def run(self) -> SpecialistAssessmentResult:
+        normalized = await self.evaluate()
+        await self.persist_result(normalized)
         return normalized

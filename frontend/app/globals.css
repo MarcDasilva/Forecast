@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   --bg: #050505;
   --panel: #0b0b0b;
@@ -32,7 +36,8 @@ body {
 }
 
 button,
-textarea {
+textarea,
+input {
   font: inherit;
 }
 
@@ -41,6 +46,57 @@ textarea {
   height: 100vh;
   overflow: hidden;
   padding: 10px;
+  z-index: 1;
+}
+
+.terminal-background {
+  top: -12dvh;
+  right: 0;
+  bottom: -12dvh;
+  left: 0;
+  height: 124dvh;
+  min-height: 124dvh;
+  opacity: 0.36;
+  pointer-events: none;
+  position: fixed;
+  overflow: hidden;
+  width: 100vw;
+  min-width: 100vw;
+  transform: translateY(10dvh);
+  z-index: 0;
+}
+
+.terminal-background::before {
+  background:
+    radial-gradient(circle at 18% 18%, rgba(255, 157, 0, 0.14), transparent 0 28%),
+    radial-gradient(circle at 78% 72%, rgba(198, 72, 46, 0.08), transparent 0 30%),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 130, 74, 0.02) 0 2px,
+      transparent 2px 6px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(180, 72, 42, 0.01) 0 2px,
+      transparent 2px 6px
+    );
+  content: "";
+  inset: 0;
+  mix-blend-mode: screen;
+  opacity: 0.8;
+  position: absolute;
+  z-index: 0;
+}
+
+.terminal-background::after {
+  background:
+    radial-gradient(circle at top left, rgba(255, 157, 0, 0.06), transparent 24%),
+    radial-gradient(circle at bottom right, rgba(180, 72, 42, 0.035), transparent 28%),
+    linear-gradient(180deg, rgba(5, 5, 5, 0.18), rgba(5, 5, 5, 0.3));
+  content: "";
+  inset: 0;
+  position: absolute;
+  z-index: 2;
 }
 
 .scanlines {
@@ -56,15 +112,18 @@ textarea {
   );
   opacity: 0.09;
   mix-blend-mode: screen;
+  z-index: 3;
 }
 
 .terminal-frame {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: grid;
   gap: 10px;
   border: 2px solid var(--line-strong);
-  background: rgba(6, 6, 6, 0.94);
+  background:
+    linear-gradient(180deg, rgba(255, 157, 0, 0.035), rgba(255, 157, 0, 0.012) 24%, rgba(6, 6, 6, 0.14)),
+    rgba(6, 6, 6, 0.12);
   box-shadow: 0 0 0 1px rgba(255, 157, 0, 0.15), inset 0 0 0 1px rgba(255, 157, 0, 0.1);
   grid-template-rows: auto auto auto auto minmax(0, 1fr);
   height: calc(100vh - 20px);
@@ -78,6 +137,7 @@ textarea {
   justify-content: space-between;
   gap: 12px;
   border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(7, 7, 7, 0.08), rgba(7, 7, 7, 0.03));
   padding-bottom: 8px;
 }
 
@@ -115,7 +175,7 @@ textarea {
 }
 
 .ticker span {
-  background: var(--panel-soft);
+  background: rgba(17, 17, 17, 0.22);
   padding: 7px 10px;
   color: var(--text);
   font-size: 0.72rem;
@@ -137,7 +197,7 @@ textarea {
 .score-card {
   display: grid;
   border: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(255, 157, 0, 0.08), rgba(255, 157, 0, 0.01));
+  background: linear-gradient(180deg, rgba(255, 157, 0, 0.12), rgba(255, 157, 0, 0.025));
   grid-template-rows: 1fr auto;
   padding: 0;
 }
@@ -224,7 +284,10 @@ textarea {
   display: grid;
   grid-template-rows: auto 1fr;
   border: 1px solid var(--line);
-  background: var(--panel);
+  background:
+    linear-gradient(180deg, rgba(255, 157, 0, 0.045), rgba(255, 157, 0, 0.015) 24%, rgba(11, 11, 11, 0.2)),
+    rgba(11, 11, 11, 0.18);
+  backdrop-filter: blur(6px);
   min-height: 0;
   overflow: hidden;
 }
@@ -301,7 +364,7 @@ textarea {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #120d05;
+  background: rgba(18, 13, 5, 0.38);
   color: var(--text-dim);
   border-bottom: 1px solid var(--line);
   padding: 8px 10px;
@@ -344,8 +407,8 @@ textarea {
   resize: none;
   border: 0;
   background:
-    linear-gradient(180deg, rgba(255, 157, 0, 0.03), transparent 18%),
-    #040404;
+    linear-gradient(180deg, rgba(255, 157, 0, 0.04), transparent 18%),
+    rgba(4, 4, 4, 0.2);
   color: var(--text);
   font-size: 0.72rem;
   line-height: 1.38;
@@ -357,6 +420,202 @@ textarea {
   background: rgba(255, 157, 0, 0.3);
 }
 
+.datasource-console {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+}
+
+.datasource-tabs {
+  display: flex;
+  gap: 1px;
+  background: var(--line);
+}
+
+.datasource-tab {
+  background: rgba(17, 12, 5, 0.28);
+  border: 0;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex: 1;
+  font-size: 0.72rem;
+  padding: 8px 10px;
+  text-transform: uppercase;
+}
+
+.datasource-tab-active {
+  background: rgba(255, 157, 0, 0.14);
+  color: var(--signal);
+}
+
+.datasource-form {
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.datasource-field {
+  display: grid;
+  gap: 6px;
+}
+
+.datasource-field span {
+  color: var(--text-dim);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+}
+
+.datasource-field input,
+.datasource-field textarea {
+  background: rgba(6, 6, 6, 0.28);
+  border: 1px solid rgba(255, 157, 0, 0.2);
+  color: var(--text);
+  outline: none;
+  padding: 8px;
+}
+
+.datasource-field-grow textarea {
+  resize: none;
+}
+
+.datasource-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.datasource-status {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.dataset-inspector {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+
+.dataset-inspector-top {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 10px;
+}
+
+.dataset-inspector-heading {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dataset-inspector-heading span,
+.dataset-inspector-label,
+.dataset-inspector-meta span,
+.dataset-inspector-stat span,
+.dataset-inspector-stat small {
+  color: var(--text-dim);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+}
+
+.dataset-inspector-heading strong,
+.dataset-inspector-meta strong,
+.dataset-inspector-stat strong {
+  color: var(--text);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.dataset-inspector-title-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.dataset-inspector-edit {
+  border: 1px solid rgba(255, 157, 0, 0.2);
+  background: rgba(255, 157, 0, 0.06);
+  color: var(--signal);
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  line-height: 1;
+  padding: 6px 8px;
+}
+
+.dataset-inspector-rename {
+  display: grid;
+  gap: 8px;
+}
+
+.dataset-inspector-rename input {
+  background: rgba(6, 6, 6, 0.34);
+  border: 1px solid rgba(255, 157, 0, 0.2);
+  color: var(--text);
+  outline: none;
+  padding: 8px;
+}
+
+.dataset-inspector-rename-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dataset-inspector-close {
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--signal);
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 0.74rem;
+  line-height: 1;
+  padding: 7px 9px;
+}
+
+.dataset-inspector-body {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+
+.dataset-inspector-section {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(255, 157, 0, 0.18);
+  background: linear-gradient(180deg, rgba(255, 157, 0, 0.05), rgba(255, 157, 0, 0.01));
+  padding: 10px;
+}
+
+.dataset-inspector-section p {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.dataset-inspector-meta,
+.dataset-inspector-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.dataset-inspector-stat {
+  display: grid;
+  gap: 4px;
+  background: rgba(255, 157, 0, 0.045);
+  border: 1px solid rgba(255, 157, 0, 0.12);
+  padding: 8px;
+}
+
 .sources-list,
 .chat-thread,
 .process-stream {
@@ -364,15 +623,21 @@ textarea {
   min-height: 0;
 }
 
+.sources-stack {
+  display: grid;
+  min-height: 0;
+  padding: 10px;
+}
+
 .sources-list {
   display: grid;
   gap: 8px;
-  padding: 10px;
+  padding: 0;
 }
 
 .source-card {
   border: 1px solid rgba(255, 157, 0, 0.18);
-  background: linear-gradient(180deg, rgba(255, 157, 0, 0.07), rgba(255, 157, 0, 0.02));
+  background: linear-gradient(180deg, rgba(255, 157, 0, 0.05), rgba(255, 157, 0, 0.015));
   color: var(--text);
   cursor: pointer;
   display: grid;
@@ -420,11 +685,11 @@ textarea {
 }
 
 .chat-bubble-user {
-  background: rgba(255, 157, 0, 0.08);
+  background: rgba(255, 157, 0, 0.05);
 }
 
 .chat-bubble-assistant {
-  background: rgba(255, 157, 0, 0.03);
+  background: rgba(255, 157, 0, 0.02);
 }
 
 .chat-role,
@@ -460,7 +725,7 @@ textarea {
 }
 
 .chat-input {
-  background: #060606;
+  background: rgba(6, 6, 6, 0.28);
   border: 1px solid rgba(255, 157, 0, 0.2);
   color: var(--text);
   font-size: 0.72rem;
@@ -476,7 +741,7 @@ textarea {
 }
 
 .process-line {
-  background: #070707;
+  background: rgba(7, 7, 7, 0.32);
   border-left: 3px solid rgba(255, 157, 0, 0.24);
   display: grid;
   gap: 4px;
@@ -561,6 +826,12 @@ textarea {
   .control-bar {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .datasource-actions,
+  .datasource-tabs {
+    grid-template-columns: 1fr;
+    display: grid;
   }
 
   .dataset-table-head,
