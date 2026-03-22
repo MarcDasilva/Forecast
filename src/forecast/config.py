@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     langsmith_workspace_id: str | None = None
     langchain_callbacks_background: bool = False
 
+    fred_api_key: SecretStr | None = None
+    fred_mcp_enabled: bool = True
+    fred_mcp_url: str = "http://127.0.0.1:3010/mcp"
+    fred_mcp_server_dir: str = "fred-mcp-server-main"
+    fred_mcp_auto_start: bool = True
+    fred_mcp_start_timeout_seconds: int = 20
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -56,6 +63,7 @@ class Settings(BaseSettings):
 
     def configure_langsmith(self) -> None:
         os.environ["LANGSMITH_TRACING"] = "true" if self.langsmith_tracing else "false"
+        os.environ["LANGSMITH_TRACING_V2"] = "true" if self.langsmith_tracing else "false"
         os.environ["LANGSMITH_PROJECT"] = self.langsmith_project
         os.environ["LANGSMITH_ENDPOINT"] = self.langsmith_endpoint
         if self.langsmith_workspace_id:

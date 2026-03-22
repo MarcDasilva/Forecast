@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from forecast.agents.context_loader import load_category_context, validate_category
 from forecast.agents.data_service import AgentDataService
+from forecast.agents.fred_mcp import EmploymentMacroContextProvider
 from forecast.config import Settings, get_settings
 from forecast.db.repositories import SpecialistAssessmentRepository
 from forecast.db.session import get_session_factory
@@ -71,6 +72,7 @@ class SpecialistAgentService:
         repository: SpecialistAssessmentRepository | None = None,
         session_factory: Any | None = None,
         assessment_chain: Any | None = None,
+        macro_context_provider: Any | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.settings.configure_langsmith()
@@ -81,6 +83,9 @@ class SpecialistAgentService:
         self.data_service = data_service or AgentDataService(settings=self.settings)
         self.repository = repository or SpecialistAssessmentRepository()
         self.session_factory = session_factory or get_session_factory()
+        self.macro_context_provider = macro_context_provider
+        if self.macro_context_provider is None and self.category == "employment":
+            self.macro_context_provider = EmploymentMacroContextProvider(settings=self.settings)
         self.assessment_chain = assessment_chain or self._build_assessment_chain()
 
     def _build_assessment_chain(self) -> Any:
@@ -107,6 +112,7 @@ Rules:
 - If evidence is limited, score conservatively and lower confidence.
 - Keep rationale concise and evidence-backed.
 - Recommendations must be specific and action-oriented.
+- If external macro context is provided, treat it as a secondary signal alongside local evidence.
 
 {self.prompt_addendum or ""}
 
@@ -137,7 +143,7 @@ Evidence snapshot:
     async def _build_resource_snapshot(self) -> dict[str, Any]:
         aggregate_scores = await self.data_service.get_category_scores()
         category_datasets = await self.data_service.get_dataset_summaries(self.category, limit=5)
-        return {
+        snapshot = {
             "category": self.category,
             "current_aggregate_score": aggregate_scores.get(self.category, 0.0),
             "dataset_count": len(category_datasets),
@@ -160,6 +166,9 @@ Evidence snapshot:
                 for dataset in category_datasets
             ],
         }
+        if self.macro_context_provider is not None:
+            snapshot["external_macro_context"] = await self.macro_context_provider.build_context()
+        return snapshot
 
     @traceable(name="specialist_agent_run", run_type="chain")
     async def evaluate(self) -> SpecialistAssessmentResult:
