@@ -247,10 +247,58 @@ def simulate_composite_score(
                     "target_reached":      True,
                 })
 
-    # ── 5. Print summary ──────────────────────────────────────────────────────
+    # ── 5. Build output tables ───────────────────────────────────────────────
+
+    # summary_table: one row per subcategory + a COMPOSITE total row
+    rows = []
+    for n in names:
+        rows.append({
+            "subcategory":  n,
+            "weight":       weights[n],
+            "current_score": sub_current[n],
+            "target_score": sub_targets[n],
+            "rate_per_day": sub_rates[n],
+            "contribution": contributions[n],
+            "feasibility":  sub_feasibility[n],
+        })
+    rows.append({
+        "subcategory":  "COMPOSITE",
+        "weight":       1.0,
+        "current_score": current_composite,
+        "target_score": composite_target if mode == "composite_time_to_target" else None,
+        "rate_per_day": composite_rate,
+        "contribution": composite_rate,
+        "feasibility":  None,
+    })
+    output["summary_table"] = pd.DataFrame(rows)
+
+    # projection_table: daily time-series with composite + per-sub weighted scores
+    ref_dates_list = []
+    for n in names:
+        r = sub_results[n]
+        if r.get("target_time") and r.get("days_remaining"):
+            ref_dates_list.append(
+                r["target_time"] - timedelta(days=r["days_remaining"])
+            )
+    ref_date = max(ref_dates_list) if ref_dates_list else pd.Timestamp.today().normalize()
+
+    projection_days = 365 * 2
+    if output.get("time_to_target_days") and output["time_to_target_days"] > 0:
+        projection_days = max(projection_days, int(output["time_to_target_days"] * 1.2))
+    projection_days = min(projection_days, 365 * 20)
+
+    days_arr = np.arange(0, projection_days + 1)
+    proj = pd.DataFrame({"date": [ref_date + timedelta(days=int(d)) for d in days_arr]})
+    proj["composite"] = current_composite + composite_rate * days_arr
+    for n in names:
+        proj[n] = sub_current[n] + sub_rates[n] * days_arr              # raw score
+        proj[f"{n}_weighted"] = weights[n] * proj[n]                     # weighted
+    output["projection_table"] = proj
+
+    # ── 6. Print summary ──────────────────────────────────────────────────────
     _print_summary(output, names, weights, sub_current)
 
-    # ── 6. Plot ───────────────────────────────────────────────────────────────
+    # ── 7. Plot ───────────────────────────────────────────────────────────────
     if plot:
         _composite_plot(output, names, weights, sub_current, sub_results,
                         composite_target if mode == "composite_time_to_target" else None)

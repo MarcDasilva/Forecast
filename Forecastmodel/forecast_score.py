@@ -133,7 +133,16 @@ def forecast_score(
             f"Unknown mode '{mode}'. Choose 'time_to_target' or 'required_rate'."
         )
 
-    # ── 4. Optional plot ──────────────────────────────────────────────────────
+    # ── 4. Build a clean forecast table for downstream use ──────────────────
+    last_obs = df["ds"].iloc[-1]
+    table = forecast[["ds", "yhat", "yhat_lower", "yhat_upper", "trend"]].copy()
+    table["is_historical"] = table["ds"] <= last_obs
+    table = table.rename(columns={"ds": "date", "yhat": "predicted",
+                                  "yhat_lower": "lower_ci",
+                                  "yhat_upper": "upper_ci"})
+    result["forecast_table"] = table.reset_index(drop=True)
+
+    # ── 5. Optional plot ──────────────────────────────────────────────────────
     if plot:
         _plot(df, forecast, result, target_y, plot_title)
 

@@ -88,3 +88,14 @@ result = simulate_composite_score(
     forecast_periods = FORECAST_PERIODS,
     plot             = PLOT,
 )
+
+# ── Tables ────────────────────────────────────────────────────────────────────
+print("\n── Summary Table ───────────────────────────────────────")
+print(result["summary_table"].to_string(index=False))
+
+print("\n── Projection Table (first 10 rows) ────────────────────")
+print(result["projection_table"].head(10).to_string(index=False))
+
+# To export for custom plotting:
+# result["summary_table"].to_csv("summary.csv", index=False)
+# result["projection_table"].to_csv("projection.csv", index=False)
