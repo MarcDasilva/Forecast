@@ -19,7 +19,7 @@ from forecast_score import forecast_score
 #  CONFIG — the only section you need to edit
 # ═══════════════════════════════════════════════════════════════════════════════
 
-CSV_PATH = "Forecast/data/samples/Fake_Data_better2.csv"
+CSV_PATH = "data/samples/Fake_Data_better2.csv"
 DS_COL   = "Date"           # column containing dates / periods
 Y_COL    = "Score"   # column containing the score to forecast
 

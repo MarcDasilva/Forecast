@@ -22,4 +22,12 @@ frontend/out/
 frontend/.env.local
 frontend/.env.*.local
 frontend/.turbo/
-data/artifacts/
+backend/langchain/data/artifacts/
+backend/mcp/fred-mcp-server-main/node_modules/
+backend/mcp/fred-mcp-server-main/build/
+backend/tools/**/__pycache__/
+backend/tools/**/*.pyc
+backend/tools/**/videos/
+backend/tools/gmail_email_tool/.env
+backend/tools/gmail_email_tool/secrets/client_secret.json
+backend/tools/gmail_email_tool/secrets/token.json

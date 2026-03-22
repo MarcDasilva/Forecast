@@ -54,4 +54,4 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint.per-file-ignores]
-"Webscrape/*.py" = ["E402", "E701", "E741"]
+"../tools/web_scraping/Webscrape/*.py" = ["E402", "E701", "E741"]

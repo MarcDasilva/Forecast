@@ -56,7 +56,7 @@ def _repo_root() -> Path:
 
 @lru_cache
 def _load_scrape_function():
-    script_path = _repo_root() / "Webscrape" / "quick_scrape.py"
+    script_path = _repo_root() / ".." / "tools" / "web_scraping" / "Webscrape" / "quick_scrape.py"
     spec = importlib.util.spec_from_file_location("forecast_quick_scrape", script_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Unable to load scraper from {script_path}.")
@@ -70,7 +70,9 @@ def _load_scrape_function():
 
 @lru_cache
 def _load_er_watch_run():
-    script_path = _repo_root() / "web_scraping" / "er_watch_scraper.py"
+    script_path = (
+        _repo_root() / ".." / "tools" / "web_scraping" / "web_scraping" / "er_watch_scraper.py"
+    )
     spec = importlib.util.spec_from_file_location("forecast_er_watch_scraper", script_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Unable to load ER Watch scraper from {script_path}.")

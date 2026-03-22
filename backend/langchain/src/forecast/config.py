@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     fred_api_key: SecretStr | None = None
     fred_mcp_enabled: bool = True
     fred_mcp_url: str = "http://127.0.0.1:3010/mcp"
-    fred_mcp_server_dir: str = "fred-mcp-server-main"
+    fred_mcp_server_dir: str = "../mcp/fred-mcp-server-main"
     fred_mcp_auto_start: bool = True
     fred_mcp_start_timeout_seconds: int = 20
 

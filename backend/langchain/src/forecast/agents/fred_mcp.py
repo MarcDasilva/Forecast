@@ -186,7 +186,7 @@ class FredMcpServerManager:
         if not self._server_entrypoint.exists():
             raise FileNotFoundError(
                 "FRED MCP server build artifact is missing. "
-                "Run `npm install && npm run build` in fred-mcp-server-main."
+                "Run `npm install && npm run build` in backend/mcp/fred-mcp-server-main."
             )
 
         env = os.environ.copy()
