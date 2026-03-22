@@ -24,10 +24,10 @@ def generate_housing(index: int, rng: random.Random) -> tuple[str, Path]:
                 "block_id": f"H-{index}-{row_index + 1}",
                 "city": "Toronto",
                 "reporting_period": "2025-Q4",
-                "vacancy_rate": round(rng.uniform(3.8, 6.6), 2),
-                "cost_burden_pct": round(rng.uniform(28.0, 42.0), 2),
-                "new_housing_starts_per_1000_residents": round(rng.uniform(6.0, 11.0), 2),
-                "housing_density_units_per_hectare": round(rng.uniform(28.0, 52.0), 2),
+                "vacancy_rate": round(rng.uniform(3.2, 5.9), 2),
+                "cost_burden_pct": round(rng.uniform(30.0, 44.0), 2),
+                "new_housing_starts_per_1000_residents": round(rng.uniform(5.2, 9.6), 2),
+                "housing_density_units_per_hectare": round(rng.uniform(26.0, 48.0), 2),
             }
         )
     path = OUTPUT_DIR / f"housing_{index:02d}.csv"
@@ -83,10 +83,10 @@ def generate_employment(index: int, rng: random.Random) -> tuple[str, Path]:
                 "district_id": f"E-{index}-{row_index + 1}",
                 "city": "Toronto",
                 "reporting_period": "2025-Q4",
-                "unemployment_rate": round(rng.uniform(3.2, 6.8), 2),
-                "living_wage_compliance_pct": round(rng.uniform(62.0, 88.0), 2),
-                "labour_force_participation_pct": round(rng.uniform(58.0, 71.0), 2),
-                "gini_coefficient": round(rng.uniform(0.26, 0.39), 3),
+                "unemployment_rate": round(rng.uniform(4.1, 7.4), 2),
+                "living_wage_compliance_pct": round(rng.uniform(58.0, 82.0), 2),
+                "labour_force_participation_pct": round(rng.uniform(55.0, 68.0), 2),
+                "gini_coefficient": round(rng.uniform(0.29, 0.41), 3),
                 "median_household_income": round(rng.uniform(64000, 96000), 0),
             }
         )

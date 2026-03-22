@@ -143,16 +143,16 @@ def evaluate_employment(metrics: dict[str, float | None]) -> float:
     scores: list[float] = []
     unemployment = get_metric(metrics, "unemployment_rate")
     if unemployment is not None:
-        scores.append(clamp(1 - max(unemployment - 4, 0) / 4))
+        scores.append(clamp(1 - max(unemployment - 4, 0) / 3.5))
     living_wage = get_metric(metrics, "living_wage_compliance")
     if living_wage is not None:
-        scores.append(clamp(living_wage / 80))
+        scores.append(clamp(living_wage / 85))
     participation = get_metric(metrics, "labour_force_participation")
     if participation is not None:
-        scores.append(clamp(participation / 65))
+        scores.append(clamp(participation / 68))
     gini = get_metric(metrics, "gini_coefficient")
     if gini is not None:
-        scores.append(clamp(1 - max(gini - 0.30, 0) / 0.30))
+        scores.append(clamp(1 - max(gini - 0.28, 0) / 0.25))
     return average_scores(scores)
 
 

@@ -715,7 +715,7 @@ export function TerminalDashboard() {
     appendProcessEntry("dispatch all specialist agents", "info");
 
     try {
-      appendProcessEntry("sequencing housing, employment, transportation, healthcare, placemaking", "info");
+      appendProcessEntry("dispatching housing, employment, transportation, healthcare, placemaking to parallel workers", "info");
       const payload = await fetchJson<RunAllSpecialistsResponse>("/specialist-scores/run-all", {
         method: "POST",
       });

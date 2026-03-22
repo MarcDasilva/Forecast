@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from forecast.scoring.benchmarks import IMPORTANCE_WEIGHTS, evaluate_healthcare, evaluate_transportation
+from forecast.scoring.benchmarks import (
+    IMPORTANCE_WEIGHTS,
+    evaluate_employment,
+    evaluate_healthcare,
+    evaluate_transportation,
+)
 
 
 def test_importance_weights_sum_to_one() -> None:
@@ -41,3 +46,15 @@ def test_evaluators_accept_aggregated_metric_suffixes() -> None:
         }
     )
     assert score == 0.75
+
+
+def test_evaluate_employment_is_conservative_on_mixed_metrics() -> None:
+    score = evaluate_employment(
+        {
+            "unemployment_rate": 5.5,
+            "living_wage_compliance_pct": 65.0,
+            "labour_force_participation_pct": 60.0,
+            "gini_coefficient": 0.35,
+        }
+    )
+    assert round(score, 4) == 0.7346
