@@ -26,7 +26,7 @@ def compute_final_score(
     cosine_similarity: float,
     importance_weight: float,
 ) -> float:
-    return benchmark_eval * cosine_similarity * importance_weight * 100
+    return benchmark_eval * cosine_similarity * 100
 
 
 def aggregate_category_score(scores: list[CategoryScore]) -> float:

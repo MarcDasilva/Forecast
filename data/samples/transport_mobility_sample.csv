@@ -1,6 +1,0 @@
-segment_id,city,reporting_period,transit_modal_share_pct,average_commute_time_min,cycling_modal_share_pct,road_fatality_rate_per_10000_vehicles,walkability_score
-TR-001,Toronto,2025-Q4,47.2,34.1,8.4,1.2,78
-TR-002,Toronto,2025-Q4,49.5,32.8,9.1,1.0,81
-TR-003,Toronto,2025-Q4,51.3,31.2,10.2,0.9,83
-TR-004,Toronto,2025-Q4,46.8,35.4,7.9,1.3,76
-TR-005,Toronto,2025-Q4,50.1,30.9,9.8,0.8,84

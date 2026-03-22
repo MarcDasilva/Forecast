@@ -1,6 +1,0 @@
-district_id,city,reporting_period,unemployment_rate,living_wage_compliance_pct,labour_force_participation_pct,gini_coefficient,median_household_income
-E-4-1,Toronto,2025-Q4,5.76,77.67,63.23,0.334,66694.0
-E-4-2,Toronto,2025-Q4,4.25,68.28,59.93,0.347,85210.0
-E-4-3,Toronto,2025-Q4,4.83,63.02,59.83,0.336,74683.0
-E-4-4,Toronto,2025-Q4,3.79,70.03,61.4,0.263,82893.0
-E-4-5,Toronto,2025-Q4,6.79,71.19,66.54,0.344,89605.0
