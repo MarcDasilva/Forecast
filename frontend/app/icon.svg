@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Forecast">
+  <defs>
+    <linearGradient id="bg" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#201208" />
+      <stop offset="100%" stop-color="#090909" />
+    </linearGradient>
+    <linearGradient id="signal" x1="0%" x2="100%" y1="0%" y2="0%">
+      <stop offset="0%" stop-color="#fb923c" />
+      <stop offset="100%" stop-color="#facc15" />
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="24" fill="url(#bg)" />
+  <rect x="10" y="10" width="108" height="108" rx="18" fill="none" stroke="#f59e0b" stroke-opacity=".5" stroke-width="2" />
+  <path d="M24 88H104" stroke="#fde68a" stroke-opacity=".35" stroke-width="4" stroke-linecap="round" />
+  <path d="M28 78L48 64L62 70L80 46L100 34" fill="none" stroke="url(#signal)" stroke-linecap="round" stroke-linejoin="round" stroke-width="10" />
+  <circle cx="28" cy="78" r="6" fill="#fff7db" />
+  <circle cx="48" cy="64" r="6" fill="#fff7db" />
+  <circle cx="62" cy="70" r="6" fill="#fff7db" />
+  <circle cx="80" cy="46" r="6" fill="#fff7db" />
+  <circle cx="100" cy="34" r="6" fill="#fff7db" />
+</svg>

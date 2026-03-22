@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
     specialist_agent_interval_minutes: int = 60
     specialist_agent_run_timeout_seconds: int = 600
     endpoint_body_preview_chars: int = 300
+    artifact_storage_dir: str = "data/artifacts"
 
     openai_api_key: SecretStr | None = None
     openai_chat_model: str = "gpt-4o"
@@ -60,6 +62,17 @@ class Settings(BaseSettings):
             for origin in self.frontend_origins.split(",")
             if origin.strip()
         ]
+
+    @property
+    def repo_root(self) -> Path:
+        return Path(__file__).resolve().parents[2]
+
+    @property
+    def artifact_storage_path(self) -> Path:
+        storage_path = Path(self.artifact_storage_dir).expanduser()
+        if storage_path.is_absolute():
+            return storage_path
+        return self.repo_root / storage_path
 
     def configure_langsmith(self) -> None:
         os.environ["LANGSMITH_TRACING"] = "true" if self.langsmith_tracing else "false"

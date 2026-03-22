@@ -3,6 +3,7 @@ from __future__ import annotations
 from forecast.scoring.benchmarks import (
     IMPORTANCE_WEIGHTS,
     evaluate_employment,
+    explain_benchmark,
     evaluate_healthcare,
     evaluate_transportation,
 )
@@ -58,3 +59,25 @@ def test_evaluate_employment_is_conservative_on_mixed_metrics() -> None:
         }
     )
     assert round(score, 4) == 0.7346
+
+
+def test_explain_benchmark_returns_component_breakdown() -> None:
+    explanation = explain_benchmark(
+        "healthcare",
+        {
+            "hospital_beds_per_1000": 3.0,
+            "primary_care_physicians_per_1000": 1.0,
+            "emergency_response_time_min": 8.0,
+            "preventable_hospitalizations_per_100k": 150.0,
+        },
+    )
+
+    assert explanation["category"] == "healthcare"
+    assert explanation["metric_count"] == 4
+    assert explanation["benchmark_eval"] == 0.75
+    assert [component["metric"] for component in explanation["components"]] == [
+        "hospital_beds_per_capita",
+        "emergency_response_time",
+        "primary_care_coverage",
+        "preventable_hospitalisation",
+    ]

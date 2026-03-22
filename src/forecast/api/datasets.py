@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 
+from forecast.config import get_settings
 from forecast.db.models import CategoryScore, Dataset
 from forecast.db.repositories import DatasetRepository
 from forecast.db.session import get_session_factory
@@ -19,6 +22,7 @@ class DatasetRenameRequest(BaseModel):
 
 
 async def _serialize_dataset(session, dataset: Dataset) -> dict[str, object]:
+    repository = DatasetRepository()
     score_rows = list(
         await session.scalars(
             select(CategoryScore)
@@ -26,6 +30,7 @@ async def _serialize_dataset(session, dataset: Dataset) -> dict[str, object]:
             .order_by(CategoryScore.category.asc())
         )
     )
+    artifact_rows = await repository.list_dataset_artifacts(session, dataset_id=dataset.id)
 
     return {
         "id": str(dataset.id),
@@ -34,6 +39,20 @@ async def _serialize_dataset(session, dataset: Dataset) -> dict[str, object]:
         "input_type": dataset.input_type,
         "summary": dataset.summary,
         "error_msg": dataset.error_msg,
+        "artifacts": [
+            {
+                "id": str(artifact.id),
+                "dataset_id": str(dataset.id),
+                "artifact_type": artifact.artifact_type,
+                "label": artifact.label,
+                "filename": artifact.filename,
+                "mime_type": artifact.mime_type,
+                "size_bytes": artifact.size_bytes,
+                "download_url": f"/datasets/artifacts/{artifact.id}/download",
+                "created_at": artifact.created_at.isoformat() if artifact.created_at else None,
+            }
+            for artifact in artifact_rows
+        ],
         "scores": {
             row.category: {
                 "final_score": row.final_score,
@@ -176,6 +195,56 @@ async def get_dataset(dataset_id: str) -> dict[str, object]:
             raise HTTPException(status_code=404, detail="Dataset not found.")
 
         return await _serialize_dataset(session, dataset)
+
+
+@router.get("/artifacts/{artifact_id}/download")
+async def download_dataset_artifact(artifact_id: str):
+    settings = get_settings()
+    session_factory = get_session_factory()
+    repository = DatasetRepository()
+
+    async with session_factory() as session:
+        artifact = await repository.get_dataset_artifact(session, uuid.UUID(artifact_id))
+        if artifact is None:
+            raise HTTPException(status_code=404, detail="Artifact not found.")
+
+        storage_root = settings.artifact_storage_path.resolve()
+        resolved_path = (storage_root / Path(artifact.storage_path)).resolve()
+        if not resolved_path.is_relative_to(storage_root):
+            raise HTTPException(status_code=400, detail="Artifact path is invalid.")
+        if not resolved_path.exists():
+            raise HTTPException(status_code=404, detail="Artifact file is missing.")
+
+        return FileResponse(
+            path=resolved_path,
+            media_type=artifact.mime_type,
+            filename=artifact.filename,
+        )
+
+
+@router.get("/source-recordings/{recording_id}/download")
+async def download_source_recording(recording_id: str):
+    settings = get_settings()
+    session_factory = get_session_factory()
+    repository = DatasetRepository()
+
+    async with session_factory() as session:
+        recording = await repository.get_source_recording(session, uuid.UUID(recording_id))
+        if recording is None:
+            raise HTTPException(status_code=404, detail="Source recording not found.")
+
+        storage_root = settings.artifact_storage_path.resolve()
+        resolved_path = (storage_root / Path(recording.storage_path)).resolve()
+        if not resolved_path.is_relative_to(storage_root):
+            raise HTTPException(status_code=400, detail="Recording path is invalid.")
+        if not resolved_path.exists():
+            raise HTTPException(status_code=404, detail="Recording file is missing.")
+
+        return FileResponse(
+            path=resolved_path,
+            media_type=recording.mime_type,
+            filename=recording.filename,
+        )
 
 
 @router.patch("/{dataset_id}")

@@ -7,7 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from forecast.config import Settings, get_settings
 from forecast.agents.context_loader import SPECIALIST_CATEGORIES
-from forecast.db.models import AnchorEmbedding, Dataset, DatasetEmbedding, SpecialistAgentScore
+from forecast.db.models import (
+    AnchorEmbedding,
+    Dataset,
+    DatasetArtifact,
+    DatasetEmbedding,
+    SourceRecording,
+    SpecialistAgentScore,
+)
 from forecast.embeddings.schemas import EmbeddingResult
 
 
@@ -47,6 +54,91 @@ class DatasetRepository:
 
     async def get_dataset(self, session: AsyncSession, dataset_id: uuid.UUID) -> Dataset | None:
         return await session.get(Dataset, dataset_id)
+
+    async def create_dataset_artifact(
+        self,
+        session: AsyncSession,
+        *,
+        dataset_id: uuid.UUID,
+        artifact_type: str,
+        label: str,
+        filename: str,
+        mime_type: str,
+        storage_path: str,
+        size_bytes: int,
+        artifact_meta: dict[str, object] | None = None,
+    ) -> DatasetArtifact:
+        artifact = DatasetArtifact(
+            dataset_id=dataset_id,
+            artifact_type=artifact_type,
+            label=label,
+            filename=filename,
+            mime_type=mime_type,
+            storage_path=storage_path,
+            size_bytes=size_bytes,
+            artifact_meta=artifact_meta or {},
+        )
+        session.add(artifact)
+        await session.flush()
+        return artifact
+
+    async def list_dataset_artifacts(
+        self,
+        session: AsyncSession,
+        *,
+        dataset_id: uuid.UUID,
+    ) -> list[DatasetArtifact]:
+        result = await session.scalars(
+            select(DatasetArtifact)
+            .where(DatasetArtifact.dataset_id == dataset_id)
+            .order_by(DatasetArtifact.created_at.desc())
+        )
+        return list(result)
+
+    async def get_dataset_artifact(
+        self,
+        session: AsyncSession,
+        artifact_id: uuid.UUID,
+    ) -> DatasetArtifact | None:
+        return await session.get(DatasetArtifact, artifact_id)
+
+    async def create_source_recording(
+        self,
+        session: AsyncSession,
+        *,
+        source_ref: str,
+        source_url: str | None,
+        title: str | None,
+        artifact_type: str,
+        label: str,
+        filename: str,
+        mime_type: str,
+        storage_path: str,
+        size_bytes: int,
+        recording_meta: dict[str, object] | None = None,
+    ) -> SourceRecording:
+        recording = SourceRecording(
+            source_ref=source_ref,
+            source_url=source_url,
+            title=title,
+            artifact_type=artifact_type,
+            label=label,
+            filename=filename,
+            mime_type=mime_type,
+            storage_path=storage_path,
+            size_bytes=size_bytes,
+            recording_meta=recording_meta or {},
+        )
+        session.add(recording)
+        await session.flush()
+        return recording
+
+    async def get_source_recording(
+        self,
+        session: AsyncSession,
+        recording_id: uuid.UUID,
+    ) -> SourceRecording | None:
+        return await session.get(SourceRecording, recording_id)
 
     async def update_dataset(
         self,

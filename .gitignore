@@ -22,3 +22,4 @@ frontend/out/
 frontend/.env.local
 frontend/.env.*.local
 frontend/.turbo/
+data/artifacts/

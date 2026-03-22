@@ -1,7 +1,7 @@
 "use client";
 
 /* eslint-disable react-hooks/refs */
-import { useEffect, useRef, forwardRef } from "react";
+import React, { useEffect, useRef, useState, forwardRef } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { EffectComposer, wrapEffect } from "@react-three/postprocessing";
 import { Effect } from "postprocessing";
@@ -274,6 +274,85 @@ export default function Dither({
   disableAnimation = false,
   enableMouseInteraction = true,
   mouseRadius = 1
+}) {
+  const [canRenderWebgl, setCanRenderWebgl] = useState(false);
+
+  useEffect(() => {
+    let frameId = 0;
+
+    const checkWebglSupport = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        const context =
+          canvas.getContext("webgl2", { alpha: true, antialias: true }) ||
+          canvas.getContext("webgl", { alpha: true, antialias: true }) ||
+          canvas.getContext("experimental-webgl", { alpha: true, antialias: true });
+
+        setCanRenderWebgl(Boolean(context));
+      } catch {
+        setCanRenderWebgl(false);
+      }
+    };
+
+    frameId = window.requestAnimationFrame(checkWebglSupport);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, []);
+
+  if (!canRenderWebgl) {
+    return null;
+  }
+
+  return (
+    <DitherErrorBoundary>
+      <DitherCanvas
+        waveSpeed={waveSpeed}
+        waveFrequency={waveFrequency}
+        waveAmplitude={waveAmplitude}
+        waveColor={waveColor}
+        colorNum={colorNum}
+        pixelSize={pixelSize}
+        disableAnimation={disableAnimation}
+        enableMouseInteraction={enableMouseInteraction}
+        mouseRadius={mouseRadius}
+      />
+    </DitherErrorBoundary>
+  );
+}
+
+class DitherErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch() {}
+
+  render() {
+    if (this.state.failed) {
+      return null;
+    }
+
+    return this.props.children;
+  }
+}
+
+function DitherCanvas({
+  waveSpeed,
+  waveFrequency,
+  waveAmplitude,
+  waveColor,
+  colorNum,
+  pixelSize,
+  disableAnimation,
+  enableMouseInteraction,
+  mouseRadius
 }) {
   return (
     <Canvas

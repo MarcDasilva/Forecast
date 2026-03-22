@@ -14,7 +14,9 @@ def test_chat_endpoint_exists(monkeypatch) -> None:
                 "model_dump": lambda self: {
                     "response": f"echo:{message}",
                     "tool_calls": [],
+                    "reasoning_trace": [],
                     "messages": [],
+                    "attachments": [],
                 }
             },
         )()

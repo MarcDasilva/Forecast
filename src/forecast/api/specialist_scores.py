@@ -6,7 +6,6 @@ from forecast.agents.context_loader import SPECIALIST_CATEGORIES, validate_categ
 from forecast.db.models import SpecialistAgentScore
 from forecast.db.repositories import SpecialistAssessmentRepository
 from forecast.db.session import get_session_factory
-from forecast.tasks.specialists import run_all_specialist_agents, run_specialist_agent
 
 router = APIRouter(prefix="/specialist-scores", tags=["specialist-scores"])
 
@@ -51,6 +50,8 @@ async def get_specialist_scores() -> dict[str, object]:
 
 @router.post("/run/{category}")
 async def post_run_specialist_score(category: str) -> dict[str, object]:
+    from forecast.tasks.specialists import run_specialist_agent
+
     try:
         normalized_category = validate_category(category)
     except ValueError as error:
@@ -62,6 +63,8 @@ async def post_run_specialist_score(category: str) -> dict[str, object]:
 
 @router.post("/run-all")
 async def post_run_all_specialist_scores() -> dict[str, object]:
+    from forecast.tasks.specialists import run_all_specialist_agents
+
     results = await run_all_specialist_agents()
     return {"results": results}
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from forecast.db.repositories import DatasetRepository
@@ -45,7 +47,8 @@ async def post_ingest(
         input_type = "csv"
     elif webscrape_value:
         source_url = webscrape_value
-        raw_input, derived_targets, _ = scrape_source(
+        scrape_result = await asyncio.to_thread(
+            scrape_source,
             source_url=source_url,
             label=label,
             scrape_targets=scrape_targets,
@@ -56,9 +59,9 @@ async def post_ingest(
             source_ref = source_url
         raw_input = "\n".join(
             [
-                raw_input,
+                scrape_result.raw_input,
                 f"SOURCE LABEL: {label.strip()}" if label and label.strip() else f"SOURCE LABEL: {source_ref}",
-                f"DERIVED TARGETS: {', '.join(derived_targets)}",
+                f"DERIVED TARGETS: {', '.join(scrape_result.targets)}",
             ]
         )
     elif transcript_value:
@@ -86,6 +89,32 @@ async def post_ingest(
                 raw_text=raw_input,
                 status="pending",
             )
+            if webscrape_value:
+                for artifact in scrape_result.artifacts:
+                    await repository.create_dataset_artifact(
+                        session,
+                        dataset_id=dataset.id,
+                        artifact_type=artifact.artifact_type,
+                        label=artifact.label,
+                        filename=artifact.filename,
+                        mime_type=artifact.mime_type,
+                        storage_path=artifact.storage_path,
+                        size_bytes=artifact.size_bytes,
+                        artifact_meta=artifact.artifact_meta,
+                    )
+                    await repository.create_source_recording(
+                        session,
+                        source_ref=source_ref,
+                        source_url=source_url,
+                        title=label.strip() if label and label.strip() else source_ref,
+                        artifact_type=artifact.artifact_type,
+                        label=artifact.label,
+                        filename=artifact.filename,
+                        mime_type=artifact.mime_type,
+                        storage_path=artifact.storage_path,
+                        size_bytes=artifact.size_bytes,
+                        recording_meta=artifact.artifact_meta,
+                    )
 
     await enqueue_dataset_processing(str(dataset.id))
 

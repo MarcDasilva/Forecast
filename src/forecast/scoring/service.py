@@ -3,12 +3,18 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import func, literal, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from forecast.db.models import AnchorEmbedding, CategoryScore, Dataset, DatasetEmbedding
-from forecast.scoring.benchmarks import BENCHMARK_EVALUATORS, IMPORTANCE_WEIGHTS, clamp
+from forecast.scoring.benchmarks import (
+    BENCHMARK_EVALUATORS,
+    IMPORTANCE_WEIGHTS,
+    clamp,
+    explain_benchmark,
+)
 
 
 @dataclass
@@ -148,3 +154,65 @@ class ScoringService:
         )
         last_updated = await session.scalar(select(func.max(CategoryScore.created_at)))
         return aggregated, int(dataset_count or 0), last_updated
+
+    async def explain_category_score(
+        self,
+        session: AsyncSession,
+        *,
+        category: str,
+        limit: int = 3,
+    ) -> dict[str, Any]:
+        score_rows = list(
+            await session.execute(
+                select(Dataset, CategoryScore)
+                .join(CategoryScore, CategoryScore.dataset_id == Dataset.id)
+                .where(
+                    Dataset.status == "complete",
+                    Dataset.summary.is_not(None),
+                    CategoryScore.category == category,
+                )
+                .order_by(CategoryScore.final_score.desc(), Dataset.created_at.desc())
+            )
+        )
+        aggregated_scores, _, _ = await self.get_aggregated_scores(session)
+        total_similarity = sum(score.cosine_similarity for _, score in score_rows)
+
+        top_contributors: list[dict[str, Any]] = []
+        for dataset, score in score_rows[:limit]:
+            metrics = (dataset.summary or {}).get("key_metrics", {})
+            benchmark_breakdown = explain_benchmark(category, metrics)
+            top_contributors.append(
+                {
+                    "dataset_id": str(dataset.id),
+                    "source_ref": dataset.source_ref,
+                    "title": (dataset.summary or {}).get("title"),
+                    "geography": (dataset.summary or {}).get("geography"),
+                    "time_period": (dataset.summary or {}).get("time_period"),
+                    "created_at": dataset.created_at.isoformat() if dataset.created_at else None,
+                    "final_score": float(score.final_score),
+                    "similarity": float(score.cosine_similarity),
+                    "benchmark_eval": float(score.benchmark_eval),
+                    "contribution_weight": (
+                        float(score.cosine_similarity / total_similarity) if total_similarity else 0.0
+                    ),
+                    "score_equation": (
+                        f"{score.benchmark_eval:.3f} x {score.cosine_similarity:.3f} x 100 = "
+                        f"{score.final_score:.2f}"
+                    ),
+                    "benchmark_breakdown": benchmark_breakdown,
+                }
+            )
+
+        return {
+            "category": category,
+            "aggregated_score": float(aggregated_scores.get(category, 0.0)),
+            "dataset_count": len(score_rows),
+            "importance_weight": float(IMPORTANCE_WEIGHTS[category]),
+            "importance_weight_used_in_final_score": False,
+            "scoring_formula": "dataset_final_score = benchmark_eval * cosine_similarity * 100",
+            "aggregation_formula": (
+                "category_score = similarity-weighted average of dataset final scores"
+            ),
+            "benchmark_formula": "benchmark_eval = average(normalized metric component scores)",
+            "top_contributors": top_contributors,
+        }

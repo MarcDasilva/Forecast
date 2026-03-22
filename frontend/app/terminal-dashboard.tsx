@@ -1,5 +1,6 @@
 "use client";
 
+import { ForecastPanel, type CategoryForecastResponse } from "@/components/forecast-panel";
 import Dither from "@/components/Dither";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -98,6 +99,20 @@ type ChatHistoryItem = {
   content: string;
   toolCalls?: { name?: string; result?: string }[];
   reasoningTrace?: AgentReasoningStep[];
+  attachments?: ChatAttachment[];
+};
+
+type ChatAttachment = {
+  artifact_id: string;
+  dataset_id?: string | null;
+  kind: string;
+  label: string;
+  filename: string;
+  content_type: string;
+  size_bytes?: number | null;
+  download_url: string;
+  source_ref?: string | null;
+  created_at?: string | null;
 };
 
 type ScoreMetricComponent = {
@@ -158,6 +173,7 @@ type AgentChatResponse = {
   response: string;
   tool_calls: { name?: string; result?: string }[];
   reasoning_trace: AgentReasoningStep[];
+  attachments: ChatAttachment[];
 };
 
 type IngestResponse = {
@@ -175,6 +191,7 @@ type ProcessEntry = {
 
 type TerminalViewMode = "intelligence" | "ingest";
 type DatasourceMode = "endpoint" | "file" | "webscrape" | "transcript";
+type ForecastMode = "time_to_target" | "required_rate";
 
 const CATEGORY_ORDER = [
   "housing",
@@ -186,6 +203,13 @@ const CATEGORY_ORDER = [
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000";
+
+function resolveApiUrl(path: string) {
+  if (/^https?:\/\//.test(path)) {
+    return path;
+  }
+  return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+}
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -247,6 +271,34 @@ function formatDecimal(value: number | null | undefined, digits = 2) {
   }
 
   return value.toFixed(digits);
+}
+
+function formatFileSize(value: number | null | undefined) {
+  if (typeof value !== "number" || Number.isNaN(value) || value <= 0) {
+    return "--";
+  }
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getDefaultForecastTarget(score: number | null | undefined) {
+  if (typeof score !== "number" || Number.isNaN(score)) {
+    return "75";
+  }
+
+  const nextTarget = Math.max(55, Math.min(95, Math.ceil(score / 5) * 5 + 10));
+  return nextTarget.toFixed(0);
+}
+
+function getDefaultForecastDate() {
+  const base = new Date();
+  base.setDate(base.getDate() + 180);
+  return base.toISOString().slice(0, 10);
 }
 
 function dedupeRelevantSources(items: RelevantDatasetItem[]) {
@@ -388,6 +440,14 @@ export function TerminalDashboard() {
   const [isChatting, setIsChatting] = useState(false);
   const [runningCategory, setRunningCategory] = useState<string | null>(null);
   const [runningAllAgents, setRunningAllAgents] = useState(false);
+  const [showForecastPanel, setShowForecastPanel] = useState(false);
+  const [forecastMode, setForecastMode] = useState<ForecastMode>("time_to_target");
+  const [forecastTargetY, setForecastTargetY] = useState("75");
+  const [forecastTargetDate, setForecastTargetDate] = useState(getDefaultForecastDate);
+  const [forecastPeriods, setForecastPeriods] = useState(365);
+  const [forecastData, setForecastData] = useState<CategoryForecastResponse | null>(null);
+  const [forecastError, setForecastError] = useState<string | null>(null);
+  const [isForecastLoading, setIsForecastLoading] = useState(false);
 
   const appendProcessEntry = useCallback((message: string, tone: ProcessEntry["tone"] = "info") => {
     setShowProcessPanel(true);
@@ -554,6 +614,84 @@ export function TerminalDashboard() {
     : [];
   const recentChatEntries = chatHistory.slice(-6);
 
+  useEffect(() => {
+    const nextScore = scores?.scores[selectedCategory];
+    setForecastTargetY(getDefaultForecastTarget(nextScore));
+    setForecastTargetDate(getDefaultForecastDate());
+    setForecastData(null);
+    setForecastError(null);
+  }, [scores?.scores, selectedCategory]);
+
+  const loadForecast = useCallback(
+    async (options?: { category?: string; announce?: boolean }) => {
+      const category = options?.category ?? selectedCategory;
+      const parsedTargetY = Number(forecastTargetY);
+
+      if (!Number.isFinite(parsedTargetY)) {
+        setForecastError("Enter a numeric target score before generating the forecast.");
+        return;
+      }
+
+      if (forecastMode === "required_rate" && !forecastTargetDate) {
+        setForecastError("Choose a target date for required-rate mode.");
+        return;
+      }
+
+      setForecastError(null);
+      setIsForecastLoading(true);
+
+      if (options?.announce ?? true) {
+        appendProcessEntry(
+          `building ${category} forecast | mode=${forecastMode} | target=${parsedTargetY.toFixed(1)}`,
+          "info",
+        );
+      }
+
+      try {
+        const query = new URLSearchParams({
+          mode: forecastMode,
+          target_y: parsedTargetY.toString(),
+          forecast_periods: forecastPeriods.toString(),
+        });
+
+        if (forecastMode === "required_rate") {
+          query.set("target_date", forecastTargetDate);
+        }
+
+        const payload = await fetchJson<CategoryForecastResponse>(
+          `/scores/forecast/${category}?${query.toString()}`,
+        );
+        setForecastData(payload);
+        appendProcessEntry(`forecast ready -> ${category} (${payload.mode})`, "success");
+      } catch (forecastLoadError) {
+        const message =
+          forecastLoadError instanceof Error
+            ? forecastLoadError.message
+            : "Failed to generate forecast.";
+        setForecastError(message);
+        appendProcessEntry(`forecast failure -> ${category} | ${message}`, "warn");
+      } finally {
+        setIsForecastLoading(false);
+      }
+    },
+    [
+      appendProcessEntry,
+      forecastMode,
+      forecastPeriods,
+      forecastTargetDate,
+      forecastTargetY,
+      selectedCategory,
+    ],
+  );
+
+  useEffect(() => {
+    if (!showForecastPanel) {
+      return;
+    }
+
+    void loadForecast({ announce: false });
+  }, [loadForecast, selectedCategory, showForecastPanel]);
+
   function renderReasoningStep(step: AgentReasoningStep) {
     return (
       <section key={`${step.tool_name}-${step.step}`} className="chat-trace-step">
@@ -671,6 +809,29 @@ export function TerminalDashboard() {
           <div className="chat-preview-meta">
             {reasoningCount ? <span>{reasoningCount} thinking steps</span> : null}
             {toolCount ? <span>{toolCount} tool calls</span> : null}
+          </div>
+        ) : null}
+        {entry.attachments?.length ? (
+          <div className="chat-attachments">
+            {entry.attachments.map((attachment) => (
+              <a
+                key={attachment.artifact_id}
+                className="chat-attachment"
+                href={resolveApiUrl(attachment.download_url)}
+                download={attachment.filename}
+              >
+                <div className="chat-attachment-top">
+                  <strong>{attachment.label}</strong>
+                  <span>Download Clip</span>
+                </div>
+                <div className="chat-attachment-meta">
+                  <span>{attachment.filename}</span>
+                  {attachment.size_bytes ? <span>{formatFileSize(attachment.size_bytes)}</span> : null}
+                  {attachment.created_at ? <span>{formatTimestamp(attachment.created_at)}</span> : null}
+                </div>
+                {attachment.source_ref ? <p>{attachment.source_ref}</p> : null}
+              </a>
+            ))}
           </div>
         ) : null}
         {isWorkspace && entry.toolCalls?.length ? (
@@ -985,6 +1146,7 @@ export function TerminalDashboard() {
           content: payload.response,
           toolCalls: payload.tool_calls,
           reasoningTrace: payload.reasoning_trace,
+          attachments: payload.attachments,
         },
       ]);
       appendProcessEntry(
@@ -1117,6 +1279,17 @@ export function TerminalDashboard() {
           >
             {showProcessPanel ? "HIDE PROCESS WINDOW" : "SHOW PROCESS WINDOW"}
           </button>
+          <button
+            className={`terminal-button${showForecastPanel ? " terminal-button-primary" : ""}`}
+            type="button"
+            onClick={() => {
+              setShowForecastPanel((current) => !current);
+            }}
+          >
+            {showForecastPanel
+              ? `HIDE ${selectedCategory.toUpperCase()} FORECAST`
+              : `SHOW ${selectedCategory.toUpperCase()} FORECAST`}
+          </button>
         </section>
 
         <section className="score-grid">
@@ -1154,8 +1327,12 @@ export function TerminalDashboard() {
           })}
         </section>
 
-        <section className={`terminal-matrix${showProcessPanel ? " terminal-matrix-process-open" : ""}`}>
-          <div className="panel registry-panel">
+        <section
+          className={`terminal-matrix${showProcessPanel ? " terminal-matrix-process-open" : ""}${
+            showForecastPanel ? " terminal-matrix-forecast-open" : ""
+          }`}
+        >
+          <div className={`panel registry-panel${showForecastPanel ? " registry-panel-hidden" : ""}`}>
             <div className="panel-header">
               <span>DATA REGISTRY</span>
               <span className="panel-subtle">LIVE DATA SOURCES</span>
@@ -1192,7 +1369,7 @@ export function TerminalDashboard() {
             </div>
           </div>
 
-          <div className="panel terminal-panel">
+          <div className={`panel terminal-panel${showForecastPanel ? " terminal-panel-forecast-open" : ""}`}>
             <div className="panel-header">
               <span>
                 {terminalViewMode === "ingest"
@@ -1201,6 +1378,8 @@ export function TerminalDashboard() {
                     ? "PLANNER CHAT"
                   : isSourceInspectorOpen
                     ? "DATASET DETAIL"
+                    : showForecastPanel
+                      ? "FORECAST CONSOLE"
                     : "INTELLIGENCE TEXTBOX"}
               </span>
               <span className="panel-subtle">
@@ -1214,6 +1393,8 @@ export function TerminalDashboard() {
                     ? sourceInspectorDataset?.summary?.title ??
                       sourceInspectorDataset?.source_ref ??
                       "LOADING DATASET"
+                    : showForecastPanel
+                      ? `${selectedCategory.toUpperCase()} FORECAST`
                     : `${selectedCategory.toUpperCase()} FOCUS`}
               </span>
             </div>
@@ -1561,6 +1742,23 @@ export function TerminalDashboard() {
                   <div className="dataset-empty">Loading selected dataset...</div>
                 )}
               </div>
+            ) : showForecastPanel ? (
+              <ForecastPanel
+                categoryLabel={formatCategoryLabel(selectedCategory)}
+                data={forecastData}
+                error={forecastError}
+                forecastPeriods={forecastPeriods}
+                isLoading={isForecastLoading}
+                mode={forecastMode}
+                onClose={() => setShowForecastPanel(false)}
+                onForecastPeriodsChange={setForecastPeriods}
+                onGenerate={() => void loadForecast({ announce: true })}
+                onModeChange={setForecastMode}
+                onTargetDateChange={setForecastTargetDate}
+                onTargetYChange={setForecastTargetY}
+                targetDate={forecastTargetDate}
+                targetY={forecastTargetY}
+              />
             ) : (
               <textarea
                 className="terminal-textbox"
