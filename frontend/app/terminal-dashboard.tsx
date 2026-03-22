@@ -177,6 +177,26 @@ function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function formatCategoryLabel(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function dedupeRelevantSources(items: RelevantDatasetItem[]) {
+  const seen = new Set<string>();
+
+  return items.filter((item) => {
+    const key = `${item.source_ref.trim().toLowerCase()}::${(item.title ?? "").trim().toLowerCase()}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
 function buildTerminalText(args: {
   scores: ScoresResponse | null;
   specialists: SpecialistScoresResponse | null;
@@ -270,6 +290,10 @@ export function TerminalDashboard() {
   const [processEntries, setProcessEntries] = useState<ProcessEntry[]>([]);
   const [showProcessPanel, setShowProcessPanel] = useState(false);
   const [terminalViewMode, setTerminalViewMode] = useState<TerminalViewMode>("intelligence");
+  const [isSourceInspectorOpen, setIsSourceInspectorOpen] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [isEditingInspectorName, setIsEditingInspectorName] = useState(false);
+  const [isRenamingDataset, setIsRenamingDataset] = useState(false);
   const [datasourceMode, setDatasourceMode] = useState<DatasourceMode>("endpoint");
   const [datasourceUrl, setDatasourceUrl] = useState("");
   const [webscrapeUrl, setWebscrapeUrl] = useState("");
@@ -359,6 +383,7 @@ export function TerminalDashboard() {
   useEffect(() => {
     if (!selectedDatasetId) {
       setSelectedDataset(null);
+      setRenameDraft("");
       return;
     }
 
@@ -387,13 +412,17 @@ export function TerminalDashboard() {
   }, [selectedDatasetId]);
 
   useEffect(() => {
+    setRenameDraft(selectedDataset?.summary?.title ?? "");
+  }, [selectedDataset?.id, selectedDataset?.summary?.title]);
+
+  useEffect(() => {
     let active = true;
 
     async function loadRelevantSources() {
       try {
         const payload = await fetchJson<RelevantDatasetsResponse>(`/datasets/relevant/${selectedCategory}`);
         if (active) {
-          setRelevantSources(payload.items);
+          setRelevantSources(dedupeRelevantSources(payload.items));
         }
       } catch (sourceError) {
         if (active) {
@@ -411,6 +440,18 @@ export function TerminalDashboard() {
     };
   }, [selectedCategory]);
 
+  useEffect(() => {
+    if (terminalViewMode === "ingest") {
+      setIsSourceInspectorOpen(false);
+      setIsEditingInspectorName(false);
+    }
+  }, [terminalViewMode]);
+
+  useEffect(() => {
+    setIsSourceInspectorOpen(false);
+    setIsEditingInspectorName(false);
+  }, [selectedCategory]);
+
   const terminalText = useMemo(
     () =>
       buildTerminalText({
@@ -423,6 +464,14 @@ export function TerminalDashboard() {
   );
 
   const selectedSpecialist = specialists?.scores[selectedCategory] ?? null;
+  const sourceInspectorDataset =
+    isSourceInspectorOpen && selectedDataset?.id === selectedDatasetId ? selectedDataset : null;
+  const sourceInspectorMetrics = sourceInspectorDataset?.summary?.key_metrics ?? {};
+  const sourceInspectorScores = sourceInspectorDataset
+    ? Object.entries(sourceInspectorDataset.scores).sort(
+        (left, right) => right[1].final_score - left[1].final_score,
+      )
+    : [];
 
   function resetDatasourceForm(nextMode: DatasourceMode) {
     setDatasourceMode(nextMode);
@@ -700,14 +749,49 @@ export function TerminalDashboard() {
     }
   }
 
+  async function renameSelectedDataset() {
+    if (!selectedDatasetId || !renameDraft.trim() || isRenamingDataset) {
+      return;
+    }
+
+    setIsRenamingDataset(true);
+    setError(null);
+
+    try {
+      const payload = await fetchJson<DatasetDetailResponse>(`/datasets/${selectedDatasetId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ summary_title: renameDraft.trim() }),
+      });
+
+      setSelectedDataset(payload);
+      setRenameDraft(payload.summary?.title ?? "");
+      setIsEditingInspectorName(false);
+      setRelevantSources((current) =>
+        current.map((item) =>
+          item.id === payload.id
+            ? { ...item, title: payload.summary?.title ?? item.title }
+            : item,
+        ),
+      );
+      appendProcessEntry(`summary title updated -> ${payload.summary?.title ?? "--"}`, "success");
+    } catch (renameError) {
+      const message =
+        renameError instanceof Error ? renameError.message : "Failed to rename dataset.";
+      setError(message);
+      appendProcessEntry(`rename failed | ${message}`, "warn");
+    } finally {
+      setIsRenamingDataset(false);
+    }
+  }
+
   return (
     <main className="terminal-shell">
       <div className="scanlines" />
       <section className="terminal-frame">
         <header className="hero-bar">
           <div>
-            <p className="eyebrow">Forecast / Bloomberg-Style Terminal</p>
-            <h1>MUNICIPAL INTELLIGENCE DASHBOARD</h1>
+            <p className="eyebrow">Forecast</p>
+            <h1>WATERLOO REGION 1 MILLION DASHBOARD</h1>
           </div>
           <div className="hero-meta">
             <span>{isLoading ? "BOOTING" : "LIVE"}</span>
@@ -822,7 +906,11 @@ export function TerminalDashboard() {
                 <button
                   key={item.id}
                   className={`dataset-row${selectedDatasetId === item.id ? " dataset-row-active" : ""}`}
-                  onClick={() => setSelectedDatasetId(item.id)}
+                  onClick={() => {
+                    setIsEditingInspectorName(false);
+                    setIsSourceInspectorOpen(false);
+                    setSelectedDatasetId(item.id);
+                  }}
                   type="button"
                 >
                   <span title={item.source_ref}>{item.source_ref}</span>
@@ -838,9 +926,21 @@ export function TerminalDashboard() {
 
           <div className="panel terminal-panel">
             <div className="panel-header">
-              <span>{terminalViewMode === "ingest" ? "DATASOURCE CONSOLE" : "INTELLIGENCE TEXTBOX"}</span>
+              <span>
+                {terminalViewMode === "ingest"
+                  ? "DATASOURCE CONSOLE"
+                  : isSourceInspectorOpen
+                    ? "DATASET DETAIL"
+                    : "INTELLIGENCE TEXTBOX"}
+              </span>
               <span className="panel-subtle">
-                {terminalViewMode === "ingest" ? "INGEST + SORTING FLOW" : `${selectedCategory.toUpperCase()} FOCUS`}
+                {terminalViewMode === "ingest"
+                  ? "INGEST + SORTING FLOW"
+                  : isSourceInspectorOpen
+                    ? sourceInspectorDataset?.summary?.title ??
+                      sourceInspectorDataset?.source_ref ??
+                      "LOADING DATASET"
+                    : `${selectedCategory.toUpperCase()} FOCUS`}
               </span>
             </div>
 
@@ -947,6 +1047,163 @@ export function TerminalDashboard() {
                   value={error ? `${ingestConsole}\n\nERROR\n-----\n${error}` : ingestConsole}
                 />
               </div>
+            ) : isSourceInspectorOpen ? (
+              <div className="dataset-inspector">
+                <div className="dataset-inspector-top">
+                  <div className="dataset-inspector-heading">
+                    <span>Expanded dataset view</span>
+                    {isEditingInspectorName ? (
+                      <div className="dataset-inspector-rename">
+                        <input
+                          onChange={(event) => setRenameDraft(event.target.value)}
+                          placeholder="Summary title"
+                          value={renameDraft}
+                        />
+                        <div className="dataset-inspector-rename-actions">
+                          <button
+                            className="terminal-button terminal-button-primary"
+                            disabled={!renameDraft.trim() || isRenamingDataset}
+                            onClick={() => void renameSelectedDataset()}
+                            type="button"
+                          >
+                            {isRenamingDataset ? "Saving" : "Save"}
+                          </button>
+                          <button
+                            className="terminal-button"
+                            onClick={() => {
+                              setRenameDraft(sourceInspectorDataset?.summary?.title ?? "");
+                              setIsEditingInspectorName(false);
+                            }}
+                            type="button"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="dataset-inspector-title-row">
+                        <strong>
+                          {sourceInspectorDataset?.summary?.title ??
+                            sourceInspectorDataset?.source_ref ??
+                            "Loading dataset..."}
+                        </strong>
+                        <button
+                          aria-label="Rename dataset"
+                          className="dataset-inspector-edit"
+                          onClick={() => setIsEditingInspectorName(true)}
+                          type="button"
+                        >
+                          ✎
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    aria-label="Minimize dataset detail"
+                    className="dataset-inspector-close"
+                    onClick={() => {
+                      setIsEditingInspectorName(false);
+                      setIsSourceInspectorOpen(false);
+                    }}
+                    type="button"
+                  >
+                    X
+                  </button>
+                </div>
+
+                {sourceInspectorDataset ? (
+                  <div className="dataset-inspector-body">
+                    <section className="dataset-inspector-section">
+                      <div className="dataset-inspector-meta">
+                        <div>
+                          <span>ID</span>
+                          <strong>{sourceInspectorDataset.id}</strong>
+                        </div>
+                        <div>
+                          <span>Source</span>
+                          <strong>{sourceInspectorDataset.source_ref}</strong>
+                        </div>
+                        <div>
+                          <span>Input type</span>
+                          <strong>{sourceInspectorDataset.input_type}</strong>
+                        </div>
+                        <div>
+                          <span>Status</span>
+                          <strong>{sourceInspectorDataset.status}</strong>
+                        </div>
+                        <div>
+                          <span>Geography</span>
+                          <strong>{sourceInspectorDataset.summary?.geography ?? "--"}</strong>
+                        </div>
+                        <div>
+                          <span>Time period</span>
+                          <strong>{sourceInspectorDataset.summary?.time_period ?? "--"}</strong>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="dataset-inspector-section">
+                      <span className="dataset-inspector-label">Civic relevance</span>
+                      <p>
+                        {sourceInspectorDataset.summary?.civic_relevance ??
+                          "No civic relevance summary available for this dataset."}
+                      </p>
+                    </section>
+
+                    <section className="dataset-inspector-section">
+                      <span className="dataset-inspector-label">Data quality notes</span>
+                      <p>
+                        {sourceInspectorDataset.summary?.data_quality_notes ??
+                          "No data quality notes were generated for this dataset."}
+                      </p>
+                    </section>
+
+                    <section className="dataset-inspector-section">
+                      <span className="dataset-inspector-label">Key metrics</span>
+                      {Object.entries(sourceInspectorMetrics).length ? (
+                        <div className="dataset-inspector-grid">
+                          {Object.entries(sourceInspectorMetrics).map(([metric, value]) => (
+                            <div key={metric} className="dataset-inspector-stat">
+                              <span>{formatCategoryLabel(metric)}</span>
+                              <strong>{value ?? "null"}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="dataset-empty">No key metrics available.</div>
+                      )}
+                    </section>
+
+                    <section className="dataset-inspector-section">
+                      <span className="dataset-inspector-label">Scores</span>
+                      {sourceInspectorScores.length ? (
+                        <div className="dataset-inspector-grid">
+                          {sourceInspectorScores.map(([category, detail]) => (
+                            <div key={category} className="dataset-inspector-stat">
+                              <span>{formatCategoryLabel(category)}</span>
+                              <strong>{detail.final_score.toFixed(2)}</strong>
+                              <small>
+                                sim {detail.similarity.toFixed(3)} | bench {detail.benchmark_eval.toFixed(3)}
+                              </small>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="dataset-empty">No scores available.</div>
+                      )}
+                    </section>
+
+                    {sourceInspectorDataset.error_msg ? (
+                      <section className="dataset-inspector-section">
+                        <span className="dataset-inspector-label">Error</span>
+                        <p>{sourceInspectorDataset.error_msg}</p>
+                      </section>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="dataset-empty">Loading selected dataset...</div>
+                )}
+              </div>
             ) : (
               <textarea
                 className="terminal-textbox"
@@ -970,7 +1227,11 @@ export function TerminalDashboard() {
                     <button
                       key={source.id}
                       className="source-card"
-                      onClick={() => setSelectedDatasetId(source.id)}
+                      onClick={() => {
+                        setIsEditingInspectorName(false);
+                        setSelectedDatasetId(source.id);
+                        setIsSourceInspectorOpen(true);
+                      }}
                       type="button"
                     >
                       <div className="source-card-top">

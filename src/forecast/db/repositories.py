@@ -53,6 +53,7 @@ class DatasetRepository:
         session: AsyncSession,
         *,
         dataset_id: uuid.UUID,
+        source_ref: str | None = None,
         input_type: str | None = None,
         raw_text: str | None = None,
         summary: dict[str, object] | None = None,
@@ -63,6 +64,8 @@ class DatasetRepository:
         if dataset is None:
             raise ValueError(f"Dataset {dataset_id} not found.")
 
+        if source_ref is not None:
+            dataset.source_ref = source_ref
         if input_type is not None:
             dataset.input_type = input_type
         if raw_text is not None:

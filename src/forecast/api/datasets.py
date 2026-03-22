@@ -3,13 +3,46 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 
 from forecast.db.models import CategoryScore, Dataset
+from forecast.db.repositories import DatasetRepository
 from forecast.db.session import get_session_factory
 from forecast.scoring.benchmarks import IMPORTANCE_WEIGHTS
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
+
+
+class DatasetRenameRequest(BaseModel):
+    summary_title: str = Field(min_length=1, max_length=2000)
+
+
+async def _serialize_dataset(session, dataset: Dataset) -> dict[str, object]:
+    score_rows = list(
+        await session.scalars(
+            select(CategoryScore)
+            .where(CategoryScore.dataset_id == dataset.id)
+            .order_by(CategoryScore.category.asc())
+        )
+    )
+
+    return {
+        "id": str(dataset.id),
+        "source_ref": dataset.source_ref,
+        "status": dataset.status,
+        "input_type": dataset.input_type,
+        "summary": dataset.summary,
+        "error_msg": dataset.error_msg,
+        "scores": {
+            row.category: {
+                "final_score": row.final_score,
+                "similarity": row.cosine_similarity,
+                "benchmark_eval": row.benchmark_eval,
+            }
+            for row in score_rows
+        },
+    }
 
 
 @router.get("")
@@ -142,27 +175,28 @@ async def get_dataset(dataset_id: str) -> dict[str, object]:
         if dataset is None:
             raise HTTPException(status_code=404, detail="Dataset not found.")
 
-        score_rows = list(
-            await session.scalars(
-                select(CategoryScore)
-                .where(CategoryScore.dataset_id == dataset.id)
-                .order_by(CategoryScore.category.asc())
-            )
-        )
+        return await _serialize_dataset(session, dataset)
 
-    return {
-        "id": str(dataset.id),
-        "source_ref": dataset.source_ref,
-        "status": dataset.status,
-        "input_type": dataset.input_type,
-        "summary": dataset.summary,
-        "error_msg": dataset.error_msg,
-        "scores": {
-            row.category: {
-                "final_score": row.final_score,
-                "similarity": row.cosine_similarity,
-                "benchmark_eval": row.benchmark_eval,
-            }
-            for row in score_rows
-        },
-    }
+
+@router.patch("/{dataset_id}")
+async def rename_dataset(dataset_id: str, payload: DatasetRenameRequest) -> dict[str, object]:
+    summary_title = payload.summary_title.strip()
+    if not summary_title:
+        raise HTTPException(status_code=400, detail="Summary title cannot be empty.")
+
+    session_factory = get_session_factory()
+    repository = DatasetRepository()
+    async with session_factory() as session:
+        dataset = await session.get(Dataset, uuid.UUID(dataset_id))
+        if dataset is None:
+            raise HTTPException(status_code=404, detail="Dataset not found.")
+
+        next_summary = dict(dataset.summary or {})
+        next_summary["title"] = summary_title
+        await repository.update_dataset(
+            session,
+            dataset_id=dataset.id,
+            summary=next_summary,
+            error_msg=dataset.error_msg,
+        )
+        return await _serialize_dataset(session, dataset)
