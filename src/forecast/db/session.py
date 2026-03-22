@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from functools import lru_cache
 
+from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from forecast.config import get_settings
@@ -14,6 +15,7 @@ def get_engine(database_url: str | None = None) -> AsyncEngine:
     return create_async_engine(
         database_url or settings.sqlalchemy_database_url,
         pool_pre_ping=True,
+        poolclass=NullPool,
     )
 
 

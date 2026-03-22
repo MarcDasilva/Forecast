@@ -1,0 +1,6 @@
+neighbourhood_id,city,reporting_period,green_space_per_capita,park_access_pct,cultural_venue_density,neighbourhood_satisfaction_pct,community_centre_usage_pct
+P-10-1,Toronto,2025-Q4,11.23,89.02,0.146,71.15,60.22
+P-10-2,Toronto,2025-Q4,8.76,68.17,0.231,74.99,59.79
+P-10-3,Toronto,2025-Q4,7.53,88.1,0.224,66.72,43.48
+P-10-4,Toronto,2025-Q4,11.33,75.66,0.175,75.69,77.33
+P-10-5,Toronto,2025-Q4,8.15,81.22,0.207,76.07,69.02

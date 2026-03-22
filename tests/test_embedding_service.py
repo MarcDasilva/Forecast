@@ -38,11 +38,13 @@ def test_build_embed_input_skips_null_metrics() -> None:
 
     embed_input = build_embed_input(summary)
 
-    assert "Transit Access Snapshot." in embed_input
-    assert "Shows how residents access jobs and services." in embed_input
-    assert "transit_modal_share: 42" in embed_input
-    assert "average_commute_time: 31.5" in embed_input
+    assert "domain:transportation" in embed_input
+    assert "title:Transit Access Snapshot" in embed_input
+    assert "geography:Waterloo" in embed_input
+    assert "time_period:2025" in embed_input
+    assert "metrics:transit_modal_share, average_commute_time" in embed_input
     assert "cycling_modal_share" not in embed_input
+    assert "Shows how residents access jobs and services." not in embed_input
 
 
 async def test_embedding_service_embeds_summary_with_injected_client() -> None:
@@ -66,5 +68,8 @@ async def test_embedding_service_embeds_summary_with_injected_client() -> None:
     )
 
     assert result.model == "text-embedding-3-small"
-    assert result.embed_input.startswith("Housing Affordability Monitor.")
+    assert result.embed_input == (
+        "domain:housing | title:Housing Affordability Monitor | "
+        "geography:Toronto | time_period:2025 | metrics:cost_burden_pct, vacancy_rate"
+    )
     assert result.embedding == [float(len(result.embed_input))]

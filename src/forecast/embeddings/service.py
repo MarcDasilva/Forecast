@@ -7,22 +7,32 @@ from forecast.config import Settings, get_settings
 from forecast.embeddings.schemas import EmbeddingResult, SummarySchema
 
 
-def _format_metric_value(value: float) -> str:
-    return f"{value:g}"
+def _clean_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
 
 
 def build_embed_input(summary: SummarySchema) -> str:
-    metrics = [
-        f"{name}: {_format_metric_value(value)}"
-        for name, value in summary.key_metrics.items()
-        if value is not None
+    metric_names = [name for name, value in summary.key_metrics.items() if value is not None]
+    parts = [
+        f"domain:{summary.domain}",
+        f"title:{summary.title.strip()}",
     ]
 
-    parts = [f"{summary.title}.", summary.civic_relevance.strip()]
-    if metrics:
-        parts.append(f"Key metrics: {', '.join(metrics)}.")
+    geography = _clean_text(summary.geography)
+    if geography and geography != "unknown":
+        parts.append(f"geography:{geography}")
 
-    return " ".join(part for part in parts if part).strip()
+    time_period = _clean_text(summary.time_period)
+    if time_period and time_period != "unknown":
+        parts.append(f"time_period:{time_period}")
+
+    if metric_names:
+        parts.append(f"metrics:{', '.join(metric_names)}")
+
+    return " | ".join(parts)
 
 
 class EmbeddingService:

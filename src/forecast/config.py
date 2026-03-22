@@ -10,8 +10,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "Forecast"
     environment: str = "development"
+    frontend_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     database_url: str = "postgresql+asyncpg://forecast:forecast@localhost:5432/forecast"
     redis_url: str = "redis://localhost:6379/0"
+    celery_task_always_eager: bool = False
+    specialist_agent_interval_minutes: int = 60
+    endpoint_body_preview_chars: int = 300
 
     openai_api_key: SecretStr | None = None
     openai_chat_model: str = "gpt-4o"
@@ -40,6 +44,14 @@ class Settings(BaseSettings):
         if self.database_url.startswith("postgres://"):
             return self.database_url.replace("postgres://", "postgresql+asyncpg://", 1)
         return self.database_url
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.frontend_origins.split(",")
+            if origin.strip()
+        ]
 
     def configure_langsmith(self) -> None:
         os.environ["LANGSMITH_TRACING"] = "true" if self.langsmith_tracing else "false"
