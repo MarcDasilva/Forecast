@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://forecast:forecast@localhost:5432/forecast"
     redis_url: str = "redis://localhost:6379/0"
     celery_task_always_eager: bool = False
+    specialist_agent_interval_minutes: int = 60
     endpoint_body_preview_chars: int = 300
 
     openai_api_key: SecretStr | None = None

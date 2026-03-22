@@ -136,7 +136,28 @@ Scope:
 
 Status: completed
 
-### Step 9. Next.js Frontend
+### Step 9. Specialist Category Agents
+
+Goal: add five category-specific scoring agents that run on a schedule and produce benchmark-based assessments.
+
+Scope:
+- split `agentcontext.md` into five category-specific context files
+- create one specialist agent per category:
+  - housing
+  - employment
+  - transportation
+  - healthcare
+  - placemaking
+- load category-specific benchmark context into each agent
+- fetch category-specific dataset evidence and current scores
+- generate a structured specialist assessment and score
+- persist specialist agent runs
+- schedule each specialist with Celery beat
+- add `GET /specialist-scores` APIs
+
+Status: completed
+
+### Step 10. Next.js Frontend
 
 Goal: build the planner dashboard after the backend is stable.
 
@@ -153,7 +174,7 @@ Scope:
 
 Status: pending
 
-### Step 10. Hardening and Production Readiness
+### Step 11. Hardening and Production Readiness
 
 Goal: improve reliability, test coverage, and performance.
 
@@ -184,7 +205,7 @@ Implemented already:
 
 ## Immediate Next Move
 
-Build Step 9:
+Build Step 10:
 - scaffold the Next.js frontend
 - connect ingest, scores, datasets, and chat APIs
 - build dashboard, tables, charts, and chat UI

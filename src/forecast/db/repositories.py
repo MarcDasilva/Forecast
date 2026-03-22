@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from forecast.config import Settings, get_settings
-from forecast.db.models import AnchorEmbedding, Dataset, DatasetEmbedding
+from forecast.agents.context_loader import SPECIALIST_CATEGORIES
+from forecast.db.models import AnchorEmbedding, Dataset, DatasetEmbedding, SpecialistAgentScore
 from forecast.embeddings.schemas import EmbeddingResult
 
 
@@ -148,3 +149,67 @@ class AnchorRepository:
             select(AnchorEmbedding).order_by(AnchorEmbedding.category.asc())
         )
         return list(result)
+
+
+class SpecialistAssessmentRepository:
+    async def create_assessment(
+        self,
+        session: AsyncSession,
+        *,
+        category: str,
+        agent_name: str,
+        score: float,
+        status_label: str,
+        confidence: float,
+        rationale: str,
+        benchmark_highlights: list[str],
+        recommendations: list[str],
+        supporting_evidence: list[str],
+        source_dataset_ids: list[str],
+    ) -> SpecialistAgentScore:
+        assessment = SpecialistAgentScore(
+            category=category,
+            agent_name=agent_name,
+            score=score,
+            status_label=status_label,
+            confidence=confidence,
+            rationale=rationale,
+            benchmark_highlights=benchmark_highlights,
+            recommendations=recommendations,
+            supporting_evidence=supporting_evidence,
+            source_dataset_ids=source_dataset_ids,
+        )
+        session.add(assessment)
+        await session.flush()
+        return assessment
+
+    async def list_assessments(
+        self,
+        session: AsyncSession,
+        *,
+        category: str | None = None,
+        limit: int = 20,
+    ) -> list[SpecialistAgentScore]:
+        query = select(SpecialistAgentScore).order_by(SpecialistAgentScore.created_at.desc())
+        if category is not None:
+            query = query.where(SpecialistAgentScore.category == category)
+        query = query.limit(limit)
+        result = await session.scalars(query)
+        return list(result)
+
+    async def list_latest_assessments(self, session: AsyncSession) -> list[SpecialistAgentScore]:
+        rows = list(
+            await session.scalars(
+                select(SpecialistAgentScore).order_by(SpecialistAgentScore.created_at.desc())
+            )
+        )
+        latest_by_category: dict[str, SpecialistAgentScore] = {}
+        for row in rows:
+            latest_by_category.setdefault(row.category, row)
+            if len(latest_by_category) == len(SPECIALIST_CATEGORIES):
+                break
+        return [
+            latest_by_category[category]
+            for category in SPECIALIST_CATEGORIES
+            if category in latest_by_category
+        ]

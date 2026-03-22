@@ -80,3 +80,6 @@ async def enqueue_dataset_processing(dataset_id: str) -> None:
         await process_dataset(dataset_id)
     else:
         process_dataset_task.delay(dataset_id)
+
+
+from forecast.tasks import specialists as _specialists  # noqa: E402,F401
