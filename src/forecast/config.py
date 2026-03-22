@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     environment: str = "development"
     database_url: str = "postgresql+asyncpg://forecast:forecast@localhost:5432/forecast"
     redis_url: str = "redis://localhost:6379/0"
+    celery_task_always_eager: bool = False
+    endpoint_body_preview_chars: int = 300
 
     openai_api_key: SecretStr | None = None
     openai_chat_model: str = "gpt-4o"

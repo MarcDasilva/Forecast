@@ -51,6 +51,15 @@ class FakeDatasetRepository:
         return object()
 
 
+class FakeScoringService:
+    async def score_dataset(self, session: object, dataset_id) -> list[object]:
+        class Result:
+            category = "healthcare"
+            final_score = 17.5
+
+        return [Result()]
+
+
 class FakeSessionContext:
     async def __aenter__(self) -> object:
         return object()
@@ -82,6 +91,7 @@ async def test_pipeline_graph_runs_all_nodes_and_persists() -> None:
         classifier_service=FakeClassifierService(),
         summariser_service=FakeSummariserService(),
         embedding_service=FakeEmbeddingService(),
+        scoring_service=FakeScoringService(),
         dataset_repository=repository,
         session_factory=FakeSessionFactory(),
     )
@@ -100,5 +110,6 @@ async def test_pipeline_graph_runs_all_nodes_and_persists() -> None:
     assert result["input_type"] == "csv"
     assert result["summary"]["domain"] == "healthcare"
     assert result["embedding_model"] == "test-embed-model"
+    assert result["scores"]["healthcare"] == 17.5
     assert len(repository.updated) == 1
     assert len(repository.embeddings) == 1

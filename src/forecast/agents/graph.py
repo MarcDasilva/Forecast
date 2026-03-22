@@ -14,6 +14,7 @@ from forecast.db.repositories import DatasetRepository
 from forecast.db.session import get_session_factory
 from forecast.embeddings.schemas import EmbeddingResult
 from forecast.embeddings.service import EmbeddingService
+from forecast.scoring.service import ScoringService
 
 
 class PipelineState(TypedDict, total=False):
@@ -26,6 +27,7 @@ class PipelineState(TypedDict, total=False):
     embed_input: str
     embedding: list[float]
     embedding_model: str
+    scores: dict[str, float]
     status: str
     error: str | None
 
@@ -40,12 +42,14 @@ class PipelineGraphService:
         classifier_service: ClassifierService | None = None,
         summariser_service: SummariserService | None = None,
         embedding_service: EmbeddingService | None = None,
+        scoring_service: ScoringService | None = None,
         dataset_repository: DatasetRepository | None = None,
         session_factory: Any | None = None,
     ) -> None:
         self.classifier_service = classifier_service or ClassifierService()
         self.summariser_service = summariser_service or SummariserService()
         self.embedding_service = embedding_service or EmbeddingService()
+        self.scoring_service = scoring_service or ScoringService()
         self.dataset_repository = dataset_repository or DatasetRepository()
         self.session_factory = session_factory or get_session_factory()
         self.graph = self._build_graph()
@@ -56,11 +60,13 @@ class PipelineGraphService:
         graph.add_node("summariser", self.summariser_node)
         graph.add_node("embedder", self.embedding_node)
         graph.add_node("persist", self.persist_node)
+        graph.add_node("scorer", self.scorer_node)
         graph.set_entry_point("classifier")
         graph.add_edge("classifier", "summariser")
         graph.add_edge("summariser", "embedder")
         graph.add_edge("embedder", "persist")
-        graph.add_edge("persist", END)
+        graph.add_edge("persist", "scorer")
+        graph.add_edge("scorer", END)
         return graph.compile()
 
     @traceable(name="pipeline_classifier_node", run_type="chain")
@@ -116,6 +122,18 @@ class PipelineGraphService:
                 )
 
         return {"status": "complete"}
+
+    @traceable(name="pipeline_scorer_node", run_type="chain")
+    async def scorer_node(self, state: PipelineState) -> PipelineState:
+        dataset_id = uuid.UUID(state["dataset_id"])
+        async with self.session_factory() as session:
+            async with session.begin():
+                results = await self.scoring_service.score_dataset(session, dataset_id)
+
+        return {
+            "scores": {result.category: result.final_score for result in results},
+            "status": "complete",
+        }
 
     async def run(self, initial_state: PipelineState) -> PipelineState:
         return await self.graph.ainvoke(initial_state)

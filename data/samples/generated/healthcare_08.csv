@@ -1,0 +1,6 @@
+facility_id,city,reporting_period,hospital_beds_per_1000,primary_care_physicians_per_1000,emergency_response_time_min,preventable_hospitalizations_per_100k,vaccination_coverage_pct
+HC-8-1,Toronto,2025-Q4,2.65,1.08,8.86,175.2,84.86
+HC-8-2,Toronto,2025-Q4,2.41,0.86,8.32,132.5,88.14
+HC-8-3,Toronto,2025-Q4,2.79,1.12,8.68,140.4,85.62
+HC-8-4,Toronto,2025-Q4,2.66,1.1,8.22,166.1,85.26
+HC-8-5,Toronto,2025-Q4,3.03,0.94,8.69,155.8,85.13

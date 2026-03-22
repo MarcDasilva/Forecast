@@ -104,7 +104,7 @@ Scope:
 - `GET /scores` endpoint
 - scoring unit tests
 
-Status: pending
+Status: completed
 
 ### Step 7. Async Ingestion API + Celery Task
 
@@ -119,7 +119,7 @@ Scope:
 - status transitions: `pending`, `processing`, `complete`, `error`
 - Redis integration for Celery
 
-Status: pending
+Status: completed
 
 ### Step 8. Central Agent + LangSmith-Traced Tools
 
@@ -134,7 +134,7 @@ Scope:
 - SSE chat endpoint
 - LangSmith traces for tool and agent runs
 
-Status: pending
+Status: completed
 
 ### Step 9. Next.js Frontend
 
@@ -184,8 +184,7 @@ Implemented already:
 
 ## Immediate Next Move
 
-Build Step 6:
-- implement benchmark evaluation functions
-- compare dataset summaries to anchor embeddings
-- compute category-level scores
-- expose the first scoring endpoint
+Build Step 9:
+- scaffold the Next.js frontend
+- connect ingest, scores, datasets, and chat APIs
+- build dashboard, tables, charts, and chat UI
