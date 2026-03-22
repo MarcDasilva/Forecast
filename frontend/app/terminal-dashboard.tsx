@@ -1,5 +1,6 @@
 "use client";
 
+import Dither from "@/components/Dither";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type ScoresResponse = {
@@ -117,7 +118,7 @@ type ProcessEntry = {
 };
 
 type TerminalViewMode = "intelligence" | "ingest";
-type DatasourceMode = "endpoint" | "file" | "webscrape";
+type DatasourceMode = "endpoint" | "file" | "webscrape" | "transcript";
 
 const CATEGORY_ORDER = [
   "housing",
@@ -219,15 +220,15 @@ function buildTerminalText(args: {
     ...CATEGORY_ORDER.map((category) => {
       const aggregate = scores?.scores[category];
       const specialistScore = specialists?.scores[category]?.score;
-      const specialistStatus = specialists?.scores[category]?.status_label ?? "NO RUN";
+      const specialistBand = specialists?.scores[category]?.status_label ?? "NO RUN";
       return `${category.toUpperCase().padEnd(16)} agg=${String(
         aggregate?.toFixed?.(2) ?? "--",
-      ).padStart(6)} | specialist=${String(specialistScore ?? "--").padStart(5)} | ${specialistStatus}`;
+      ).padStart(6)} | specialist=${String(specialistScore ?? "--").padStart(5)} | band=${specialistBand}`;
     }),
     "",
     `FOCUS CATEGORY : ${selectedCategory.toUpperCase()}`,
     `AGENT          : ${specialist?.agent_name ?? "--"}`,
-    `STATUS         : ${specialist?.status_label ?? "--"}`,
+    `BAND           : ${specialist?.status_label ?? "--"}`,
     `CONFIDENCE     : ${specialist ? `${Math.round(specialist.confidence * 100)}%` : "--"}`,
     "",
     "RATIONALE",
@@ -297,6 +298,7 @@ export function TerminalDashboard() {
   const [datasourceMode, setDatasourceMode] = useState<DatasourceMode>("endpoint");
   const [datasourceUrl, setDatasourceUrl] = useState("");
   const [webscrapeUrl, setWebscrapeUrl] = useState("");
+  const [transcriptText, setTranscriptText] = useState("");
   const [scrapeTargets, setScrapeTargets] = useState("");
   const [datasourceLabel, setDatasourceLabel] = useState("");
   const [datasourceFile, setDatasourceFile] = useState<File | null>(null);
@@ -308,7 +310,8 @@ export function TerminalDashboard() {
       "DATASOURCE INGEST CONSOLE",
       "=========================",
       "",
-      "Paste an API endpoint or attach a CSV file.",
+      "Paste an API endpoint, interview transcript,",
+      "or attach a CSV file.",
       "The dataset will be ingested, summarized, embedded, scored,",
       "and stored in the backend, while progress is mirrored in the",
       "process window below.",
@@ -477,6 +480,7 @@ export function TerminalDashboard() {
     setDatasourceMode(nextMode);
     setDatasourceUrl("");
     setWebscrapeUrl("");
+    setTranscriptText("");
     setScrapeTargets("");
     setDatasourceLabel("");
     setDatasourceFile(null);
@@ -561,8 +565,10 @@ export function TerminalDashboard() {
 
     const isEndpointMode = datasourceMode === "endpoint";
     const isWebscrapeMode = datasourceMode === "webscrape";
+    const isTranscriptMode = datasourceMode === "transcript";
     const endpointUrl = datasourceUrl.trim();
     const nextWebscrapeUrl = webscrapeUrl.trim();
+    const nextTranscriptText = transcriptText.trim();
 
     if (isEndpointMode && !endpointUrl) {
       setError("Paste an endpoint URL before submitting.");
@@ -571,6 +577,11 @@ export function TerminalDashboard() {
 
     if (isWebscrapeMode && !nextWebscrapeUrl) {
       setError("Paste a web page URL before submitting.");
+      return;
+    }
+
+    if (isTranscriptMode && !nextTranscriptText) {
+      setError("Paste an interview transcript before submitting.");
       return;
     }
 
@@ -590,16 +601,33 @@ export function TerminalDashboard() {
         "DATASOURCE INGEST CONSOLE",
         "=========================",
         "",
-        `MODE           : ${isEndpointMode ? "endpoint" : isWebscrapeMode ? "webscrape" : "csv upload"}`,
+        `MODE           : ${isEndpointMode ? "endpoint" : isWebscrapeMode ? "webscrape" : isTranscriptMode ? "interview transcript" : "csv upload"}`,
         `LABEL          : ${datasourceLabel || "--"}`,
-        `SOURCE         : ${isEndpointMode ? endpointUrl : isWebscrapeMode ? nextWebscrapeUrl : datasourceFile?.name ?? "--"}`,
+        `SOURCE         : ${
+          isEndpointMode
+            ? endpointUrl
+            : isWebscrapeMode
+              ? nextWebscrapeUrl
+              : isTranscriptMode
+                ? datasourceLabel.trim() || "inline interview transcript"
+                : datasourceFile?.name ?? "--"
+        }`,
         `SCRAPE TARGETS : ${isWebscrapeMode ? scrapeTargets || "auto-derived" : "--"}`,
+        `TRANSCRIPT LEN : ${isTranscriptMode ? `${nextTranscriptText.length} chars` : "--"}`,
         "",
         "Preparing request payload...",
       ].join("\n"),
     );
     appendProcessEntry(
-      `datasource submission started -> ${isEndpointMode ? endpointUrl : isWebscrapeMode ? nextWebscrapeUrl : datasourceFile?.name ?? "file"}`,
+      `datasource submission started -> ${
+        isEndpointMode
+          ? endpointUrl
+          : isWebscrapeMode
+            ? nextWebscrapeUrl
+            : isTranscriptMode
+              ? datasourceLabel.trim() || "interview transcript"
+              : datasourceFile?.name ?? "file"
+      }`,
       "info",
     );
 
@@ -618,6 +646,9 @@ export function TerminalDashboard() {
           formData.set("scrape_targets", scrapeTargets.trim());
         }
         appendProcessEntry("dispatch webscrape request and await extracted payload", "info");
+      } else if (isTranscriptMode) {
+        formData.set("transcript_text", nextTranscriptText);
+        appendProcessEntry("dispatch interview transcript request", "info");
       } else if (datasourceFile) {
         formData.set("file", datasourceFile, datasourceFile.name);
         appendProcessEntry("dispatch csv upload request", "info");
@@ -664,7 +695,7 @@ export function TerminalDashboard() {
         method: "POST",
       });
       appendProcessEntry(
-        `${category} completed | score=${payload.result.score} | status=${payload.result.status_label}`,
+        `${category} completed | score=${payload.result.score} | band=${payload.result.status_label}`,
         "success",
       );
       appendProcessEntry(`refreshing dashboard after ${category} run`, "info");
@@ -690,12 +721,16 @@ export function TerminalDashboard() {
       });
       payload.results.forEach((result) => {
         appendProcessEntry(
-          `${result.category} persisted | score=${result.score} | status=${result.status_label}`,
+          `${result.category} persisted | score=${result.score} | band=${result.status_label}`,
           "success",
         );
       });
       appendProcessEntry("refreshing dashboard after full specialist sweep", "info");
       await loadDashboardData();
+      const latestResult = payload.results[payload.results.length - 1];
+      if (latestResult?.category) {
+        setSelectedCategory(latestResult.category);
+      }
     } catch (runError) {
       const message = runError instanceof Error ? runError.message : "Failed to run all agents.";
       setError(message);
@@ -786,6 +821,19 @@ export function TerminalDashboard() {
 
   return (
     <main className="terminal-shell">
+      <div className="terminal-background" aria-hidden="true">
+        <Dither
+          colorNum={4}
+          disableAnimation={false}
+          enableMouseInteraction={false}
+          mouseRadius={1.15}
+          pixelSize={3}
+          waveAmplitude={0.36}
+          waveColor={[0.4, 0.17, 0.06]}
+          waveFrequency={2.05}
+          waveSpeed={0.04}
+        />
+      </div>
       <div className="scanlines" />
       <section className="terminal-frame">
         <header className="hero-bar">
@@ -871,7 +919,7 @@ export function TerminalDashboard() {
                   <span className="score-card-label">{category}</span>
                   <strong>{aggregate?.toFixed(2) ?? "--"}</strong>
                   <span className="score-card-meta">
-                    agent {specialist?.score ?? "--"} / {specialist?.status_label ?? "NO RUN"}
+                    agent {specialist?.score ?? "--"} / band {specialist?.status_label ?? "NO RUN"}
                   </span>
                 </button>
                 <button
@@ -968,6 +1016,13 @@ export function TerminalDashboard() {
                   >
                     WEBSCRAPE
                   </button>
+                  <button
+                    className={`datasource-tab${datasourceMode === "transcript" ? " datasource-tab-active" : ""}`}
+                    onClick={() => resetDatasourceForm("transcript")}
+                    type="button"
+                  >
+                    INTERVIEW
+                  </button>
                 </div>
 
                 <div className="datasource-form">
@@ -1011,6 +1066,16 @@ export function TerminalDashboard() {
                         />
                       </label>
                     </>
+                  ) : datasourceMode === "transcript" ? (
+                    <label className="datasource-field datasource-field-grow">
+                      <span>INTERVIEW TRANSCRIPT</span>
+                      <textarea
+                        onChange={(event) => setTranscriptText(event.target.value)}
+                        placeholder="Paste the interview transcript here, including speaker turns if available."
+                        rows={8}
+                        value={transcriptText}
+                      />
+                    </label>
                   ) : (
                     <label className="datasource-field datasource-field-grow">
                       <span>CSV ATTACHMENT</span>
