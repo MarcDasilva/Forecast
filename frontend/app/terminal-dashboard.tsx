@@ -97,11 +97,67 @@ type ChatHistoryItem = {
   role: "user" | "assistant";
   content: string;
   toolCalls?: { name?: string; result?: string }[];
+  reasoningTrace?: AgentReasoningStep[];
+};
+
+type ScoreMetricComponent = {
+  metric: string;
+  label: string;
+  raw_value: number;
+  normalized_score: number;
+  formula: string;
+  interpretation: string;
+};
+
+type BenchmarkBreakdown = {
+  category: string;
+  benchmark_eval: number;
+  metric_count: number;
+  benchmark_formula: string;
+  components: ScoreMetricComponent[];
+};
+
+type ScoreContributor = {
+  dataset_id: string;
+  source_ref: string;
+  title: string | null;
+  geography: string | null;
+  time_period: string | null;
+  created_at: string | null;
+  final_score: number;
+  similarity: number;
+  benchmark_eval: number;
+  contribution_weight: number;
+  score_equation: string;
+  benchmark_breakdown: BenchmarkBreakdown;
+};
+
+type CategoryScoreExplanation = {
+  category: string;
+  aggregated_score: number;
+  dataset_count: number;
+  importance_weight: number;
+  importance_weight_used_in_final_score: boolean;
+  scoring_formula: string;
+  aggregation_formula: string;
+  benchmark_formula: string;
+  top_contributors: ScoreContributor[];
+};
+
+type AgentReasoningStep = {
+  step: number;
+  tool_name: string;
+  title: string;
+  summary: string;
+  args: Record<string, unknown>;
+  result_preview?: string | null;
+  scoring_explanation?: CategoryScoreExplanation | null;
 };
 
 type AgentChatResponse = {
   response: string;
   tool_calls: { name?: string; result?: string }[];
+  reasoning_trace: AgentReasoningStep[];
 };
 
 type IngestResponse = {
@@ -183,6 +239,14 @@ function formatCategoryLabel(value: string) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatDecimal(value: number | null | undefined, digits = 2) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "--";
+  }
+
+  return value.toFixed(digits);
 }
 
 function dedupeRelevantSources(items: RelevantDatasetItem[]) {
@@ -291,6 +355,7 @@ export function TerminalDashboard() {
   const [processEntries, setProcessEntries] = useState<ProcessEntry[]>([]);
   const [showProcessPanel, setShowProcessPanel] = useState(false);
   const [terminalViewMode, setTerminalViewMode] = useState<TerminalViewMode>("intelligence");
+  const [isChatWorkspaceOpen, setIsChatWorkspaceOpen] = useState(false);
   const [isSourceInspectorOpen, setIsSourceInspectorOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
   const [isEditingInspectorName, setIsEditingInspectorName] = useState(false);
@@ -447,6 +512,7 @@ export function TerminalDashboard() {
     if (terminalViewMode === "ingest") {
       setIsSourceInspectorOpen(false);
       setIsEditingInspectorName(false);
+      setIsChatWorkspaceOpen(false);
     }
   }, [terminalViewMode]);
 
@@ -454,6 +520,17 @@ export function TerminalDashboard() {
     setIsSourceInspectorOpen(false);
     setIsEditingInspectorName(false);
   }, [selectedCategory]);
+
+  const openChatWorkspace = useCallback(() => {
+    setTerminalViewMode("intelligence");
+    setIsEditingInspectorName(false);
+    setIsSourceInspectorOpen(false);
+    setIsChatWorkspaceOpen(true);
+  }, []);
+
+  const closeChatWorkspace = useCallback(() => {
+    setIsChatWorkspaceOpen(false);
+  }, []);
 
   const terminalText = useMemo(
     () =>
@@ -475,6 +552,143 @@ export function TerminalDashboard() {
         (left, right) => right[1].final_score - left[1].final_score,
       )
     : [];
+  const recentChatEntries = chatHistory.slice(-6);
+
+  function renderReasoningStep(step: AgentReasoningStep) {
+    return (
+      <section key={`${step.tool_name}-${step.step}`} className="chat-trace-step">
+        <div className="chat-trace-step-top">
+          <span>Step {step.step}</span>
+          <strong>{step.title}</strong>
+        </div>
+        <p className="chat-trace-summary">{step.summary}</p>
+
+        {Object.keys(step.args ?? {}).length ? (
+          <div className="chat-trace-args">
+            {Object.entries(step.args).map(([key, value]) => (
+              <span key={key}>
+                {key}={typeof value === "string" ? value : JSON.stringify(value)}
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        {step.scoring_explanation ? (
+          <div className="chat-score-trace">
+            <div className="chat-score-trace-overview">
+              <div>
+                <span>Category</span>
+                <strong>{formatCategoryLabel(step.scoring_explanation.category)}</strong>
+              </div>
+              <div>
+                <span>Aggregate</span>
+                <strong>{formatDecimal(step.scoring_explanation.aggregated_score)}</strong>
+              </div>
+              <div>
+                <span>Datasets</span>
+                <strong>{step.scoring_explanation.dataset_count}</strong>
+              </div>
+              <div>
+                <span>Weight</span>
+                <strong>{formatDecimal(step.scoring_explanation.importance_weight, 2)}</strong>
+              </div>
+            </div>
+
+            <div className="chat-score-trace-formulas">
+              <span>{step.scoring_explanation.scoring_formula}</span>
+              <span>{step.scoring_explanation.aggregation_formula}</span>
+              <span>{step.scoring_explanation.benchmark_formula}</span>
+              {!step.scoring_explanation.importance_weight_used_in_final_score ? (
+                <span>
+                  Importance weight is stored for context and is not applied to the per-dataset final score.
+                </span>
+              ) : null}
+            </div>
+
+            <div className="chat-score-trace-contributors">
+              {step.scoring_explanation.top_contributors.map((contributor) => (
+                <article key={contributor.dataset_id} className="chat-score-contributor">
+                  <div className="chat-score-contributor-top">
+                    <strong>{contributor.title ?? truncateMiddle(contributor.source_ref, 44)}</strong>
+                    <span>{formatTimestamp(contributor.created_at)}</span>
+                  </div>
+                  <p className="chat-score-contributor-source">{contributor.source_ref}</p>
+                  <div className="chat-score-contributor-metrics">
+                    <span>final {formatDecimal(contributor.final_score)}</span>
+                    <span>sim {formatDecimal(contributor.similarity, 3)}</span>
+                    <span>bench {formatDecimal(contributor.benchmark_eval, 3)}</span>
+                    <span>share {formatDecimal(contributor.contribution_weight * 100)}%</span>
+                  </div>
+                  <p className="chat-score-contributor-equation">{contributor.score_equation}</p>
+                  {contributor.benchmark_breakdown.components.length ? (
+                    <div className="chat-score-component-list">
+                      {contributor.benchmark_breakdown.components.map((component) => (
+                        <div
+                          key={`${contributor.dataset_id}-${component.metric}`}
+                          className="chat-score-component"
+                        >
+                          <div className="chat-score-component-top">
+                            <strong>{component.label}</strong>
+                            <span>
+                              raw {formatDecimal(component.raw_value, 2)} | normalized{" "}
+                              {formatDecimal(component.normalized_score, 3)}
+                            </span>
+                          </div>
+                          <p>{component.formula}</p>
+                          <p>{component.interpretation}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="dataset-empty">
+                      No benchmark metric breakdown available for this dataset.
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          </div>
+        ) : step.result_preview ? (
+          <pre className="chat-trace-preview">{step.result_preview}</pre>
+        ) : null}
+      </section>
+    );
+  }
+
+  function renderChatEntry(entry: ChatHistoryItem, index: number, mode: "workspace" | "preview") {
+    const isWorkspace = mode === "workspace";
+    const toolCount = entry.toolCalls?.length ?? 0;
+    const reasoningCount = entry.reasoningTrace?.length ?? 0;
+
+    return (
+      <article
+        key={`${mode}-${entry.role}-${index}`}
+        className={`chat-bubble chat-bubble-${entry.role}${isWorkspace ? " chat-bubble-workspace" : " chat-bubble-preview"}`}
+      >
+        <div className="chat-role">{entry.role}</div>
+        <p>{entry.content}</p>
+        {!isWorkspace && (toolCount || reasoningCount) ? (
+          <div className="chat-preview-meta">
+            {reasoningCount ? <span>{reasoningCount} thinking steps</span> : null}
+            {toolCount ? <span>{toolCount} tool calls</span> : null}
+          </div>
+        ) : null}
+        {isWorkspace && entry.toolCalls?.length ? (
+          <div className="chat-tools">
+            {entry.toolCalls.map((tool, toolIndex) => (
+              <span key={`${tool.name}-${toolIndex}`}>
+                {tool.name ?? "tool"}
+                {tool.result ? " loaded" : ""}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {isWorkspace && entry.reasoningTrace?.length ? (
+          <div className="chat-trace">{entry.reasoningTrace.map(renderReasoningStep)}</div>
+        ) : null}
+      </article>
+    );
+  }
 
   function resetDatasourceForm(nextMode: DatasourceMode) {
     setDatasourceMode(nextMode);
@@ -746,6 +960,7 @@ export function TerminalDashboard() {
       return;
     }
 
+    openChatWorkspace();
     const nextHistory = [...chatHistory, { role: "user" as const, content: message }];
     setChatHistory(nextHistory);
     setChatDraft("");
@@ -769,12 +984,16 @@ export function TerminalDashboard() {
           role: "assistant",
           content: payload.response,
           toolCalls: payload.tool_calls,
+          reasoningTrace: payload.reasoning_trace,
         },
       ]);
       appendProcessEntry(
-        `planner chat response received | tools=${payload.tool_calls.map((tool) => tool.name).join(", ") || "none"}`,
+        `planner chat response received | steps=${payload.reasoning_trace.length} | tools=${payload.tool_calls.map((tool) => tool.name).join(", ") || "none"}`,
         "success",
       );
+      payload.reasoning_trace.forEach((step) => {
+        appendProcessEntry(`chat step ${step.step} -> ${step.title}`, "info");
+      });
     } catch (chatError) {
       const messageText = chatError instanceof Error ? chatError.message : "Chat request failed.";
       setError(messageText);
@@ -957,6 +1176,7 @@ export function TerminalDashboard() {
                   onClick={() => {
                     setIsEditingInspectorName(false);
                     setIsSourceInspectorOpen(false);
+                    setIsChatWorkspaceOpen(false);
                     setSelectedDatasetId(item.id);
                   }}
                   type="button"
@@ -977,6 +1197,8 @@ export function TerminalDashboard() {
               <span>
                 {terminalViewMode === "ingest"
                   ? "DATASOURCE CONSOLE"
+                  : isChatWorkspaceOpen
+                    ? "PLANNER CHAT"
                   : isSourceInspectorOpen
                     ? "DATASET DETAIL"
                     : "INTELLIGENCE TEXTBOX"}
@@ -984,6 +1206,10 @@ export function TerminalDashboard() {
               <span className="panel-subtle">
                 {terminalViewMode === "ingest"
                   ? "INGEST + SORTING FLOW"
+                  : isChatWorkspaceOpen
+                    ? isChatting
+                      ? "MODEL THINKING + TOOL CALLS"
+                      : "CHAT WORKSPACE"
                   : isSourceInspectorOpen
                     ? sourceInspectorDataset?.summary?.title ??
                       sourceInspectorDataset?.source_ref ??
@@ -1111,6 +1337,72 @@ export function TerminalDashboard() {
                   spellCheck={false}
                   value={error ? `${ingestConsole}\n\nERROR\n-----\n${error}` : ingestConsole}
                 />
+              </div>
+            ) : isChatWorkspaceOpen ? (
+              <div className="chat-workspace">
+                <div className="chat-workspace-top">
+                  <div className="chat-workspace-heading">
+                    <span>Central agent workspace</span>
+                    <strong>
+                      {chatHistory.length
+                        ? "Live conversation with visible reasoning and tool activity"
+                        : "Start a conversation to inspect model reasoning"}
+                    </strong>
+                  </div>
+                  <button
+                    aria-label="Close chat workspace"
+                    className="dataset-inspector-close"
+                    onClick={closeChatWorkspace}
+                    type="button"
+                  >
+                    X
+                  </button>
+                </div>
+
+                <div className="chat-thread chat-thread-workspace">
+                  {chatHistory.length ? (
+                    chatHistory.map((entry, index) => renderChatEntry(entry, index, "workspace"))
+                  ) : (
+                    <div className="dataset-empty">
+                      Ask the planning agent about weak categories, evidence, or recommended interventions.
+                    </div>
+                  )}
+
+                  {isChatting ? (
+                    <article className="chat-bubble chat-bubble-assistant chat-bubble-workspace">
+                      <div className="chat-role">assistant</div>
+                      <p>Thinking through your request and preparing any tool calls needed to answer it.</p>
+                      <div className="chat-thinking">
+                        <span>Reasoning in progress</span>
+                        <span>Tool activity will appear here when the response returns</span>
+                      </div>
+                    </article>
+                  ) : null}
+                </div>
+
+                <div className="chat-input-bar chat-input-bar-workspace">
+                  <textarea
+                    className="chat-input"
+                    onChange={(event) => setChatDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        void sendChatMessage();
+                      }
+                    }}
+                    placeholder="Ask the central planning agent..."
+                    rows={4}
+                    value={chatDraft}
+                  />
+                  <button
+                    className="terminal-button terminal-button-primary"
+                    disabled={!chatDraft.trim() || isChatting}
+                    onClick={() => void sendChatMessage()}
+                    type="button"
+                  >
+                    {isChatting ? "THINKING" : "SEND"}
+                  </button>
+                </div>
               </div>
             ) : isSourceInspectorOpen ? (
               <div className="dataset-inspector">
@@ -1294,6 +1586,7 @@ export function TerminalDashboard() {
                       className="source-card"
                       onClick={() => {
                         setIsEditingInspectorName(false);
+                        setIsChatWorkspaceOpen(false);
                         setSelectedDatasetId(source.id);
                         setIsSourceInspectorOpen(true);
                       }}
@@ -1323,59 +1616,44 @@ export function TerminalDashboard() {
 
           <div className="panel chat-panel">
             <div className="panel-header">
-              <span>PLANNER CHATBOT</span>
-              <span className="panel-subtle">CONNECTED TO AGENT TOOLS</span>
+              <span>CHAT LAUNCHER</span>
+              <span className="panel-subtle">
+                {isChatWorkspaceOpen ? "WORKSPACE OPEN" : "OPEN IN INTELLIGENCE PANE"}
+              </span>
             </div>
 
-            <div className="chat-thread">
-              {chatHistory.length ? (
-                chatHistory.map((entry, index) => (
-                  <article
-                    key={`${entry.role}-${index}`}
-                    className={`chat-bubble chat-bubble-${entry.role}`}
-                  >
-                    <div className="chat-role">{entry.role}</div>
-                    <p>{entry.content}</p>
-                    {entry.toolCalls?.length ? (
-                      <div className="chat-tools">
-                        {entry.toolCalls.map((tool, toolIndex) => (
-                          <span key={`${tool.name}-${toolIndex}`}>
-                            {tool.name ?? "tool"}{tool.result ? " loaded" : ""}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </article>
-                ))
-              ) : (
-                <div className="dataset-empty">
-                  Ask the planning agent about weak categories, evidence, or recommended interventions.
-                </div>
-              )}
-            </div>
+            <div className="chat-launcher">
+              <div className="chat-launcher-status">
+                <span>{chatHistory.length ? `${chatHistory.length} messages` : "No active chat yet"}</span>
+                <span>{isChatting ? "Model thinking" : isChatWorkspaceOpen ? "Workspace active" : "Workspace closed"}</span>
+              </div>
 
-            <div className="chat-input-bar">
-              <textarea
-                className="chat-input"
-                onChange={(event) => setChatDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    void sendChatMessage();
-                  }
-                }}
-                placeholder="Ask the central planning agent..."
-                rows={3}
-                value={chatDraft}
-              />
               <button
                 className="terminal-button terminal-button-primary"
-                disabled={!chatDraft.trim() || isChatting}
-                onClick={() => void sendChatMessage()}
+                onClick={openChatWorkspace}
                 type="button"
               >
-                {isChatting ? "THINKING" : "SEND"}
+                {chatHistory.length ? "OPEN CHAT WORKSPACE" : "START CHAT IN MAIN PANE"}
               </button>
+
+              <div className="chat-thread chat-thread-preview">
+                {recentChatEntries.length ? (
+                  recentChatEntries.map((entry, index) => (
+                    <button
+                      key={`preview-${entry.role}-${index}`}
+                      className="chat-preview-trigger"
+                      onClick={openChatWorkspace}
+                      type="button"
+                    >
+                      {renderChatEntry(entry, index, "preview")}
+                    </button>
+                  ))
+                ) : (
+                  <div className="dataset-empty">
+                    Open the chat workspace to talk with the central agent and inspect its reasoning.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
