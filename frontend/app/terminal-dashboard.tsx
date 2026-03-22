@@ -43,6 +43,24 @@ type DatasetListResponse = {
   items: DatasetListItem[];
 };
 
+type RelevantDatasetItem = {
+  id: string;
+  source_ref: string;
+  input_type: string;
+  created_at: string | null;
+  title: string | null;
+  geography: string | null;
+  time_period: string | null;
+  final_score: number;
+  benchmark_eval: number;
+  similarity: number;
+};
+
+type RelevantDatasetsResponse = {
+  category: string;
+  items: RelevantDatasetItem[];
+};
+
 type DatasetScoreDetail = {
   final_score: number;
   similarity: number;
@@ -85,12 +103,21 @@ type AgentChatResponse = {
   tool_calls: { name?: string; result?: string }[];
 };
 
+type IngestResponse = {
+  dataset_id: string;
+  status: string;
+  message: string;
+};
+
 type ProcessEntry = {
   id: string;
   tone: "info" | "success" | "warn";
   message: string;
   createdAt: string;
 };
+
+type TerminalViewMode = "intelligence" | "ingest";
+type DatasourceMode = "endpoint" | "file" | "webscrape";
 
 const CATEGORY_ORDER = [
   "housing",
@@ -105,7 +132,6 @@ const API_BASE_URL =
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  const method = init?.method?.toUpperCase() ?? "GET";
   const hasBody = init?.body !== undefined && init?.body !== null;
 
   if (hasBody && !headers.has("Content-Type")) {
@@ -145,6 +171,10 @@ function truncateMiddle(value: string, length = 48) {
   const head = Math.ceil(length * 0.62);
   const tail = Math.floor(length * 0.22);
   return `${value.slice(0, head)}...${value.slice(-tail)}`;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function buildTerminalText(args: {
@@ -234,11 +264,32 @@ export function TerminalDashboard() {
   const [selectedCategory, setSelectedCategory] = useState<string>("housing");
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [selectedDataset, setSelectedDataset] = useState<DatasetDetailResponse | null>(null);
-  const [linkedSources, setLinkedSources] = useState<DatasetDetailResponse[]>([]);
+  const [relevantSources, setRelevantSources] = useState<RelevantDatasetItem[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
   const [processEntries, setProcessEntries] = useState<ProcessEntry[]>([]);
   const [showProcessPanel, setShowProcessPanel] = useState(false);
+  const [terminalViewMode, setTerminalViewMode] = useState<TerminalViewMode>("intelligence");
+  const [datasourceMode, setDatasourceMode] = useState<DatasourceMode>("endpoint");
+  const [datasourceUrl, setDatasourceUrl] = useState("");
+  const [webscrapeUrl, setWebscrapeUrl] = useState("");
+  const [scrapeTargets, setScrapeTargets] = useState("");
+  const [datasourceLabel, setDatasourceLabel] = useState("");
+  const [datasourceFile, setDatasourceFile] = useState<File | null>(null);
+  const [isSubmittingDatasource, setIsSubmittingDatasource] = useState(false);
+  const [ingestDatasetId, setIngestDatasetId] = useState<string | null>(null);
+  const [ingestResult, setIngestResult] = useState<DatasetDetailResponse | null>(null);
+  const [ingestConsole, setIngestConsole] = useState(
+    [
+      "DATASOURCE INGEST CONSOLE",
+      "=========================",
+      "",
+      "Paste an API endpoint or attach a CSV file.",
+      "The dataset will be ingested, summarized, embedded, scored,",
+      "and stored in the backend, while progress is mirrored in the",
+      "process window below.",
+    ].join("\n"),
+  );
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -336,40 +387,29 @@ export function TerminalDashboard() {
   }, [selectedDatasetId]);
 
   useEffect(() => {
-    const sourceIds = specialists?.scores[selectedCategory]?.source_dataset_ids ?? [];
-    if (!sourceIds.length) {
-      setLinkedSources([]);
-      return;
-    }
-
     let active = true;
 
-    async function loadSourceDetails() {
+    async function loadRelevantSources() {
       try {
-        const details = await Promise.all(
-          sourceIds.slice(0, 5).map((datasetId) =>
-            fetchJson<DatasetDetailResponse>(`/datasets/${datasetId}`),
-          ),
-        );
-
+        const payload = await fetchJson<RelevantDatasetsResponse>(`/datasets/relevant/${selectedCategory}`);
         if (active) {
-          setLinkedSources(details);
+          setRelevantSources(payload.items);
         }
       } catch (sourceError) {
         if (active) {
           setError(
-            sourceError instanceof Error ? sourceError.message : "Failed to load linked sources.",
+            sourceError instanceof Error ? sourceError.message : "Failed to load relevant sources.",
           );
         }
       }
     }
 
-    void loadSourceDetails();
+    void loadRelevantSources();
 
     return () => {
       active = false;
     };
-  }, [selectedCategory, specialists]);
+  }, [selectedCategory]);
 
   const terminalText = useMemo(
     () =>
@@ -383,6 +423,187 @@ export function TerminalDashboard() {
   );
 
   const selectedSpecialist = specialists?.scores[selectedCategory] ?? null;
+
+  function resetDatasourceForm(nextMode: DatasourceMode) {
+    setDatasourceMode(nextMode);
+    setDatasourceUrl("");
+    setWebscrapeUrl("");
+    setScrapeTargets("");
+    setDatasourceLabel("");
+    setDatasourceFile(null);
+  }
+
+  async function pollIngestDataset(datasetId: string) {
+    appendProcessEntry(`polling dataset lifecycle -> ${datasetId}`, "info");
+
+    for (let attempt = 1; attempt <= 30; attempt += 1) {
+      const dataset = await fetchJson<DatasetDetailResponse>(`/datasets/${datasetId}`);
+      setIngestResult(dataset);
+      setSelectedDatasetId(dataset.id);
+
+      const summaryTitle = dataset.summary?.title ?? "--";
+      const scoreCategories = Object.keys(dataset.scores ?? {});
+      const consoleLines = [
+        "DATASOURCE INGEST CONSOLE",
+        "=========================",
+        "",
+        `DATASET ID     : ${dataset.id}`,
+        `SOURCE         : ${dataset.source_ref}`,
+        `INPUT TYPE     : ${dataset.input_type}`,
+        `STATUS         : ${dataset.status}`,
+        `TITLE          : ${summaryTitle}`,
+        `GEOGRAPHY      : ${dataset.summary?.geography ?? "--"}`,
+        `TIME PERIOD    : ${dataset.summary?.time_period ?? "--"}`,
+        "",
+        "KEY METRICS",
+        "-----------",
+        ...(Object.entries(dataset.summary?.key_metrics ?? {}).length
+          ? Object.entries(dataset.summary?.key_metrics ?? {}).map(
+              ([key, value]) => `${key} = ${value ?? "null"}`,
+            )
+          : ["No key metrics extracted yet."]),
+        "",
+        "SCORE RESULTS",
+        "-------------",
+        ...(scoreCategories.length
+          ? scoreCategories.map((category) => {
+              const detail = dataset.scores[category];
+              return `${category} final=${detail.final_score.toFixed(2)} sim=${detail.similarity.toFixed(3)} bench=${detail.benchmark_eval.toFixed(3)}`;
+            })
+          : ["Scores not available yet."]),
+      ];
+
+      setIngestConsole(consoleLines.join("\n"));
+
+      if (attempt === 1) {
+        appendProcessEntry(`dataset record created -> ${datasetId}`, "info");
+      }
+
+      appendProcessEntry(`attempt ${attempt} | dataset status=${dataset.status}`, "info");
+
+      if (dataset.status === "complete") {
+        appendProcessEntry(`ingest complete -> ${summaryTitle}`, "success");
+        appendProcessEntry(`stored summary and scores for ${dataset.id}`, "success");
+        await loadDashboardData();
+        return;
+      }
+
+      if (dataset.status === "error") {
+        const message = dataset.error_msg ?? "Unknown ingest failure.";
+        appendProcessEntry(`ingest failed -> ${message}`, "warn");
+        setError(message);
+        return;
+      }
+
+      if (attempt === 2) {
+        appendProcessEntry("pipeline step observed -> classifier / summariser / embedder / scorer", "info");
+      }
+
+      await sleep(1500);
+    }
+
+    appendProcessEntry(`ingest polling timed out for ${datasetId}`, "warn");
+  }
+
+  async function submitDatasource() {
+    if (isSubmittingDatasource) {
+      return;
+    }
+
+    const isEndpointMode = datasourceMode === "endpoint";
+    const isWebscrapeMode = datasourceMode === "webscrape";
+    const endpointUrl = datasourceUrl.trim();
+    const nextWebscrapeUrl = webscrapeUrl.trim();
+
+    if (isEndpointMode && !endpointUrl) {
+      setError("Paste an endpoint URL before submitting.");
+      return;
+    }
+
+    if (isWebscrapeMode && !nextWebscrapeUrl) {
+      setError("Paste a web page URL before submitting.");
+      return;
+    }
+
+    if (datasourceMode === "file" && !datasourceFile) {
+      setError("Attach a CSV file before submitting.");
+      return;
+    }
+
+    setError(null);
+    setIsSubmittingDatasource(true);
+    setTerminalViewMode("ingest");
+    setShowProcessPanel(true);
+    setIngestResult(null);
+    setIngestDatasetId(null);
+    setIngestConsole(
+      [
+        "DATASOURCE INGEST CONSOLE",
+        "=========================",
+        "",
+        `MODE           : ${isEndpointMode ? "endpoint" : isWebscrapeMode ? "webscrape" : "csv upload"}`,
+        `LABEL          : ${datasourceLabel || "--"}`,
+        `SOURCE         : ${isEndpointMode ? endpointUrl : isWebscrapeMode ? nextWebscrapeUrl : datasourceFile?.name ?? "--"}`,
+        `SCRAPE TARGETS : ${isWebscrapeMode ? scrapeTargets || "auto-derived" : "--"}`,
+        "",
+        "Preparing request payload...",
+      ].join("\n"),
+    );
+    appendProcessEntry(
+      `datasource submission started -> ${isEndpointMode ? endpointUrl : isWebscrapeMode ? nextWebscrapeUrl : datasourceFile?.name ?? "file"}`,
+      "info",
+    );
+
+    try {
+      const formData = new FormData();
+      if (datasourceLabel.trim()) {
+        formData.set("label", datasourceLabel.trim());
+      }
+
+      if (isEndpointMode) {
+        formData.set("endpoint_url", endpointUrl);
+        appendProcessEntry("dispatch ingest endpoint request", "info");
+      } else if (isWebscrapeMode) {
+        formData.set("webscrape_url", nextWebscrapeUrl);
+        if (scrapeTargets.trim()) {
+          formData.set("scrape_targets", scrapeTargets.trim());
+        }
+        appendProcessEntry("dispatch webscrape request and await extracted payload", "info");
+      } else if (datasourceFile) {
+        formData.set("file", datasourceFile, datasourceFile.name);
+        appendProcessEntry("dispatch csv upload request", "info");
+      }
+
+      const response = await fetch(`${API_BASE_URL}/ingest`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const payload = (await response.json()) as IngestResponse;
+      setIngestDatasetId(payload.dataset_id);
+      appendProcessEntry(`dataset queued -> ${payload.dataset_id}`, "success");
+      appendProcessEntry("waiting for pipeline status changes in backend", "info");
+
+      setIngestConsole((current) =>
+        `${current}\nQueued dataset: ${payload.dataset_id}\nBackend message: ${payload.message}`,
+      );
+
+      await pollIngestDataset(payload.dataset_id);
+      resetDatasourceForm(datasourceMode);
+    } catch (submitError) {
+      const message =
+        submitError instanceof Error ? submitError.message : "Datasource submission failed.";
+      setError(message);
+      appendProcessEntry(`datasource ingest failed | ${message}`, "warn");
+      setIngestConsole((current) => `${current}\n\nERROR\n-----\n${message}`);
+    } finally {
+      setIsSubmittingDatasource(false);
+    }
+  }
 
   async function runSingleSpecialist(category: string) {
     setRunningCategory(category);
@@ -504,6 +725,13 @@ export function TerminalDashboard() {
 
         <section className="control-bar">
           <button
+            className={`terminal-button${terminalViewMode === "ingest" ? " terminal-button-primary" : ""}`}
+            onClick={() => setTerminalViewMode((current) => (current === "ingest" ? "intelligence" : "ingest"))}
+            type="button"
+          >
+            {terminalViewMode === "ingest" ? "RETURN TO INTELLIGENCE" : "ADD DATASOURCE"}
+          </button>
+          <button
             className="terminal-button"
             onClick={() => {
               setIsRefreshing(true);
@@ -610,29 +838,135 @@ export function TerminalDashboard() {
 
           <div className="panel terminal-panel">
             <div className="panel-header">
-              <span>INTELLIGENCE TEXTBOX</span>
-              <span className="panel-subtle">{selectedCategory.toUpperCase()} FOCUS</span>
+              <span>{terminalViewMode === "ingest" ? "DATASOURCE CONSOLE" : "INTELLIGENCE TEXTBOX"}</span>
+              <span className="panel-subtle">
+                {terminalViewMode === "ingest" ? "INGEST + SORTING FLOW" : `${selectedCategory.toUpperCase()} FOCUS`}
+              </span>
             </div>
 
-            <textarea
-              className="terminal-textbox"
-              readOnly
-              spellCheck={false}
-              value={error ? `${terminalText}\n\nERROR\n-----\n${error}` : terminalText}
-            />
+            {terminalViewMode === "ingest" ? (
+              <div className="datasource-console">
+                <div className="datasource-tabs">
+                  <button
+                    className={`datasource-tab${datasourceMode === "endpoint" ? " datasource-tab-active" : ""}`}
+                    onClick={() => resetDatasourceForm("endpoint")}
+                    type="button"
+                  >
+                    API ENDPOINT
+                  </button>
+                  <button
+                    className={`datasource-tab${datasourceMode === "file" ? " datasource-tab-active" : ""}`}
+                    onClick={() => resetDatasourceForm("file")}
+                    type="button"
+                  >
+                    CSV FILE
+                  </button>
+                  <button
+                    className={`datasource-tab${datasourceMode === "webscrape" ? " datasource-tab-active" : ""}`}
+                    onClick={() => resetDatasourceForm("webscrape")}
+                    type="button"
+                  >
+                    WEBSCRAPE
+                  </button>
+                </div>
+
+                <div className="datasource-form">
+                  <label className="datasource-field">
+                    <span>LABEL</span>
+                    <input
+                      onChange={(event) => setDatasourceLabel(event.target.value)}
+                      placeholder="Optional display label"
+                      value={datasourceLabel}
+                    />
+                  </label>
+
+                  {datasourceMode === "endpoint" ? (
+                    <label className="datasource-field datasource-field-grow">
+                      <span>API URL</span>
+                      <textarea
+                        onChange={(event) => setDatasourceUrl(event.target.value)}
+                        placeholder="https://example.com/api/..."
+                        rows={5}
+                        value={datasourceUrl}
+                      />
+                    </label>
+                  ) : datasourceMode === "webscrape" ? (
+                    <>
+                      <label className="datasource-field datasource-field-grow">
+                        <span>WEB PAGE URL</span>
+                        <textarea
+                          onChange={(event) => setWebscrapeUrl(event.target.value)}
+                          placeholder="https://example.com/page-to-scrape"
+                          rows={4}
+                          value={webscrapeUrl}
+                        />
+                      </label>
+
+                      <label className="datasource-field">
+                        <span>SCRAPE TARGETS</span>
+                        <input
+                          onChange={(event) => setScrapeTargets(event.target.value)}
+                          placeholder="Optional comma-separated targets, e.g. WRHN Midtown, current wait time"
+                          value={scrapeTargets}
+                        />
+                      </label>
+                    </>
+                  ) : (
+                    <label className="datasource-field datasource-field-grow">
+                      <span>CSV ATTACHMENT</span>
+                      <input
+                        accept=".csv,text/csv"
+                        onChange={(event) => {
+                          const nextFile = event.target.files?.[0] ?? null;
+                          setDatasourceFile(nextFile);
+                        }}
+                        type="file"
+                      />
+                    </label>
+                  )}
+
+                  <div className="datasource-actions">
+                    <button
+                      className="terminal-button terminal-button-primary"
+                      disabled={isSubmittingDatasource}
+                      onClick={() => void submitDatasource()}
+                      type="button"
+                    >
+                      {isSubmittingDatasource ? "INGESTING" : "RUN SORTING PROCESS"}
+                    </button>
+                    {ingestDatasetId ? (
+                      <span className="datasource-status">DATASET {truncateMiddle(ingestDatasetId, 26)}</span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <textarea
+                  className="terminal-textbox"
+                  readOnly
+                  spellCheck={false}
+                  value={error ? `${ingestConsole}\n\nERROR\n-----\n${error}` : ingestConsole}
+                />
+              </div>
+            ) : (
+              <textarea
+                className="terminal-textbox"
+                readOnly
+                spellCheck={false}
+                value={error ? `${terminalText}\n\nERROR\n-----\n${error}` : terminalText}
+              />
+            )}
           </div>
 
           <div className="panel sources-panel">
             <div className="panel-header">
-              <span>ADDITIONAL SOURCES</span>
-              <span className="panel-subtle">CONNECTED TO INGESTED DATA</span>
+              <span>RELEVANT SOURCES</span>
+              <span className="panel-subtle">{selectedCategory.toUpperCase()} RELEVANCE</span>
             </div>
 
-            <div className="sources-list">
-              {linkedSources.length ? (
-                linkedSources.map((source) => {
-                  const summary = source.summary ?? {};
-                  return (
+            <div className="sources-stack">
+              <div className="sources-list">
+                {relevantSources.length ? (
+                  relevantSources.map((source) => (
                     <button
                       key={source.id}
                       className="source-card"
@@ -640,21 +974,24 @@ export function TerminalDashboard() {
                       type="button"
                     >
                       <div className="source-card-top">
-                        <strong>{summary.title ?? truncateMiddle(source.source_ref, 52)}</strong>
+                        <strong>{source.title ?? truncateMiddle(source.source_ref, 52)}</strong>
                         <span>{source.input_type}</span>
                       </div>
-                      <p>{summary.civic_relevance ?? "No civic relevance summary available."}</p>
+                      <p>
+                        score {source.final_score.toFixed(2)} | sim {source.similarity.toFixed(3)} | bench{" "}
+                        {source.benchmark_eval.toFixed(3)}
+                      </p>
                       <div className="source-card-meta">
-                        <span>{summary.geography ?? "--"}</span>
-                        <span>{summary.time_period ?? "--"}</span>
-                        <span>{source.status}</span>
+                        <span>{source.geography ?? "--"}</span>
+                        <span>{source.time_period ?? "--"}</span>
+                        <span>{formatTimestamp(source.created_at)}</span>
                       </div>
                     </button>
-                  );
-                })
-              ) : (
-                <div className="dataset-empty">No linked source datasets for the current specialist run.</div>
-              )}
+                  ))
+                ) : (
+                  <div className="dataset-empty">No relevant datasets found for the selected category.</div>
+                )}
+              </div>
             </div>
           </div>
 

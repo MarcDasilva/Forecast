@@ -32,7 +32,8 @@ body {
 }
 
 button,
-textarea {
+textarea,
+input {
   font: inherit;
 }
 
@@ -357,6 +358,78 @@ textarea {
   background: rgba(255, 157, 0, 0.3);
 }
 
+.datasource-console {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+}
+
+.datasource-tabs {
+  display: flex;
+  gap: 1px;
+  background: var(--line);
+}
+
+.datasource-tab {
+  background: #110c05;
+  border: 0;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex: 1;
+  font-size: 0.72rem;
+  padding: 8px 10px;
+  text-transform: uppercase;
+}
+
+.datasource-tab-active {
+  background: rgba(255, 157, 0, 0.14);
+  color: var(--signal);
+}
+
+.datasource-form {
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.datasource-field {
+  display: grid;
+  gap: 6px;
+}
+
+.datasource-field span {
+  color: var(--text-dim);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+}
+
+.datasource-field input,
+.datasource-field textarea {
+  background: #060606;
+  border: 1px solid rgba(255, 157, 0, 0.2);
+  color: var(--text);
+  outline: none;
+  padding: 8px;
+}
+
+.datasource-field-grow textarea {
+  resize: none;
+}
+
+.datasource-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.datasource-status {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
 .sources-list,
 .chat-thread,
 .process-stream {
@@ -364,10 +437,16 @@ textarea {
   min-height: 0;
 }
 
+.sources-stack {
+  display: grid;
+  min-height: 0;
+  padding: 10px;
+}
+
 .sources-list {
   display: grid;
   gap: 8px;
-  padding: 10px;
+  padding: 0;
 }
 
 .source-card {
@@ -561,6 +640,12 @@ textarea {
   .control-bar {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .datasource-actions,
+  .datasource-tabs {
+    grid-template-columns: 1fr;
+    display: grid;
   }
 
   .dataset-table-head,

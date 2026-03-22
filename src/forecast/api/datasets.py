@@ -7,6 +7,7 @@ from sqlalchemy import desc, func, select
 
 from forecast.db.models import CategoryScore, Dataset
 from forecast.db.session import get_session_factory
+from forecast.scoring.benchmarks import IMPORTANCE_WEIGHTS
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -43,6 +44,93 @@ async def get_datasets(
             }
             for dataset in datasets
         ],
+    }
+
+
+@router.get("/relevant/{category}")
+async def get_relevant_datasets(
+    category: str,
+    limit: int = Query(default=5, ge=1, le=20),
+) -> dict[str, object]:
+    if category not in IMPORTANCE_WEIGHTS:
+        raise HTTPException(status_code=400, detail=f"Unsupported category '{category}'.")
+
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        rows = list(
+            await session.execute(
+                select(Dataset, CategoryScore)
+                .join(CategoryScore, CategoryScore.dataset_id == Dataset.id)
+                .where(
+                    Dataset.status == "complete",
+                    Dataset.summary.is_not(None),
+                    CategoryScore.category == category,
+                )
+                .order_by(CategoryScore.final_score.desc(), Dataset.created_at.desc())
+                .limit(limit)
+            )
+        )
+
+    return {
+        "category": category,
+        "items": [
+            {
+                "id": str(dataset.id),
+                "source_ref": dataset.source_ref,
+                "input_type": dataset.input_type,
+                "created_at": dataset.created_at.isoformat() if dataset.created_at else None,
+                "title": (dataset.summary or {}).get("title"),
+                "geography": (dataset.summary or {}).get("geography"),
+                "time_period": (dataset.summary or {}).get("time_period"),
+                "final_score": score.final_score,
+                "benchmark_eval": score.benchmark_eval,
+                "similarity": score.cosine_similarity,
+            }
+            for dataset, score in rows
+        ],
+    }
+
+
+@router.get("/{dataset_id}/metric-history")
+async def get_dataset_metric_history(dataset_id: str) -> dict[str, object]:
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        dataset = await session.get(Dataset, uuid.UUID(dataset_id))
+        if dataset is None:
+            raise HTTPException(status_code=404, detail="Dataset not found.")
+
+        history_rows = list(
+            await session.scalars(
+                select(Dataset)
+                .where(
+                    Dataset.source_ref == dataset.source_ref,
+                    Dataset.status == "complete",
+                    Dataset.summary.is_not(None),
+                )
+                .order_by(Dataset.created_at.asc())
+            )
+        )
+
+    series: dict[str, list[dict[str, object]]] = {}
+    for row in history_rows:
+        metrics = (row.summary or {}).get("key_metrics", {})
+        for metric_name, metric_value in metrics.items():
+            if isinstance(metric_value, bool) or not isinstance(metric_value, (int, float)):
+                continue
+            series.setdefault(metric_name, []).append(
+                {
+                    "dataset_id": str(row.id),
+                    "observed_at": row.created_at.isoformat() if row.created_at else None,
+                    "value": float(metric_value),
+                }
+            )
+
+    return {
+        "dataset_id": str(dataset.id),
+        "source_ref": dataset.source_ref,
+        "title": (dataset.summary or {}).get("title"),
+        "series": series,
+        "run_count": len(history_rows),
     }
 
 

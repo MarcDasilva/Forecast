@@ -37,6 +37,7 @@ _PRIMARY_FIELDS = ["current wait time", "price", "rating", "score", "status"]
 
 # ── Network helpers ───────────────────────────────────────────────────────────
 
+
 def _fetch(url: str) -> requests.Response | None:
     """GET a URL, return Response or None on error."""
     try:
@@ -90,6 +91,7 @@ def _best_subpage(field: str, sitemap_urls: list[str]) -> str | None:
 
 
 # ── Core extraction ───────────────────────────────────────────────────────────
+
 
 def _extract(html: str, fields: list[str]) -> dict[str, str | None]:
     """
@@ -175,10 +177,9 @@ def _extract(html: str, fields: list[str]) -> dict[str, str | None]:
         if value is None:
             sig_tokens = [t for t in field_tokens if len(t) > 3]
             for token in sig_tokens:
-                for el in (
-                    soup.find_all(True, attrs={"class": re.compile(token, re.I)})
-                    + soup.find_all(True, attrs={"id": re.compile(token, re.I)})
-                ):
+                for el in soup.find_all(
+                    True, attrs={"class": re.compile(token, re.I)}
+                ) + soup.find_all(True, attrs={"id": re.compile(token, re.I)}):
                     text = el.get_text(" ", strip=True)
                     if text and text.lower() != token and len(text) < 80:
                         value = text
@@ -200,6 +201,7 @@ def _extract(html: str, fields: list[str]) -> dict[str, str | None]:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def scrape_url(url: str, *fields: str) -> dict[str, str | None]:
     """
@@ -268,6 +270,7 @@ def scrape_url(url: str, *fields: str) -> dict[str, str | None]:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _norm(text: str) -> str:
     """Lowercase, strip punctuation noise, collapse whitespace."""
     text = text.lower().strip().rstrip(":").strip()
@@ -275,9 +278,7 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _adjacent_line_extract(
-    field_norm: str, field_tokens: set[str], lines: list[str]
-) -> str | None:
+def _adjacent_line_extract(field_norm: str, field_tokens: set[str], lines: list[str]) -> str | None:
     """
     Scan ordered page lines for a label matching the field, then return the
     adjacent value line (forward or backward).
@@ -287,11 +288,23 @@ def _adjacent_line_extract(
       - Value above label:  "29" / "waiting"
     """
     _NOISE = {
-        "all hospitals", "toggle theme", "updated", "live data available",
-        "static information only", "get directions", "open in maps",
-        "visit website", "call hospital", "loading map", "wait time trends",
-        "hospital information", "ontario health west", "ontario health east",
-        "ontario health north", "ontario health central", "ontario health toronto",
+        "all hospitals",
+        "toggle theme",
+        "updated",
+        "live data available",
+        "static information only",
+        "get directions",
+        "open in maps",
+        "visit website",
+        "call hospital",
+        "loading map",
+        "wait time trends",
+        "hospital information",
+        "ontario health west",
+        "ontario health east",
+        "ontario health north",
+        "ontario health central",
+        "ontario health toronto",
     }
     sig_tokens = {t for t in field_tokens if len(t) > 3}
 
@@ -316,9 +329,11 @@ def _adjacent_line_extract(
         )
 
     def value_score(s: str) -> int:
-        if re.search(r"\d", s):   return 2   # digit → likely a value
-        if len(s.split()) == 1:   return 1   # single word
-        return 0                              # multi-word → likely another label
+        if re.search(r"\d", s):
+            return 2  # digit → likely a value
+        if len(s.split()) == 1:
+            return 1  # single word
+        return 0  # multi-word → likely another label
 
     for i, line in enumerate(lines):
         if not is_label_match(line):
@@ -395,7 +410,6 @@ if __name__ == "__main__":
         "WRHN Midtown",
         "WRHN Queen's",
         "Cambridge Memorial Hospital",
-        "Guelph General Hospital",
     )
     print("\n── Waterloo-Area ER Wait Times (er-watch.ca) ──────")
     for field, value in er.items():
