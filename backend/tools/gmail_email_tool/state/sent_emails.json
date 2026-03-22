@@ -9,6 +9,16 @@
       ],
       "gmail_message_id": "19d16a19a729b2d6",
       "sent_at_epoch": 1774201183
+    },
+    "vision-1-million-healthcare-test": {
+      "subject": "Request for Healthcare Data Update for Vision 1 Million Scorecard",
+      "recipients": [
+        "levi.fleischer@gmail.com",
+        "marc.dasilva@uwaterloo.ca",
+        "jjcsiu@uwaterloo.ca"
+      ],
+      "gmail_message_id": "19d16ffc1715488a",
+      "sent_at_epoch": 1774207353
     }
   }
 }

@@ -1,0 +1,6 @@
+block_id,city,reporting_period,vacancy_rate,cost_burden_pct,new_housing_starts_per_1000_residents,housing_density_units_per_hectare
+H-6-1,Toronto,2025-Q4,6.52,30.69,6.11,47.12
+H-6-2,Toronto,2025-Q4,4.76,29.53,7.96,37.33
+H-6-3,Toronto,2025-Q4,4.33,36.3,8.55,35.26
+H-6-4,Toronto,2025-Q4,5.38,33.21,7.4,48.27
+H-6-5,Toronto,2025-Q4,5.89,30.34,9.69,48.45

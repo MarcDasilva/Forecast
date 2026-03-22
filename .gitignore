@@ -2,6 +2,7 @@
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 .env
 .env.local
 .env.*.local
@@ -22,3 +23,14 @@ frontend/out/
 frontend/.env.local
 frontend/.env.*.local
 frontend/.turbo/
+
+# Backend
+backend/langchain/__pycache__/
+backend/langchain/.pytest_cache/
+backend/langchain/.ruff_cache/
+backend/langchain/htmlcov/
+backend/langchain/.coverage
+backend/langchain/.env
+backend/mcp/node_modules/
+backend/mcp/build/
+backend/tools/gmail_email_tool/logs/

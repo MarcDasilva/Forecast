@@ -38,7 +38,7 @@ gmail_email_tool/
 
 ## What the AI should call
 
-The core callable is `send_email(payload: dict)` in [service.py](C:/Users/jerem/Forecast/gmail_email_tool/src/gmail_email_tool/service.py).
+The core callable is `send_email(payload: dict)` in [service.py](C:/Users/jerem/Forecast/backend/tools/gmail_email_tool/src/gmail_email_tool/service.py).
 
 Accepted payload shape:
 
@@ -56,14 +56,14 @@ Accepted payload shape:
 - `attachment_png_path` is optional and must point to a `.png` file if present.
 - `idempotency_key` is optional. If omitted, the tool computes one from the email content and attachment.
 
-Recipients are intentionally not supplied by the payload. They are defined in [config.py](C:/Users/jerem/Forecast/gmail_email_tool/src/gmail_email_tool/config.py) as a hardcoded allowlist.
+Recipients are intentionally not supplied by the payload. They are defined in [config.py](C:/Users/jerem/Forecast/backend/tools/gmail_email_tool/src/gmail_email_tool/config.py) as a hardcoded allowlist.
 
 ## Setup instructions
 
 1. Create OAuth credentials in Google Cloud for a Desktop app and enable the Gmail API.
 2. Copy `.env.example` to `.env`.
-3. Save your Google OAuth client secret JSON locally, for example at `gmail_email_tool/secrets/client_secret.json`.
-4. Edit [config.py](C:/Users/jerem/Forecast/gmail_email_tool/src/gmail_email_tool/config.py) and replace the placeholder recipients.
+3. Save your Google OAuth client secret JSON locally, for example at `backend/tools/gmail_email_tool/secrets/client_secret.json`.
+4. Edit [config.py](C:/Users/jerem/Forecast/backend/tools/gmail_email_tool/src/gmail_email_tool/config.py) and replace the placeholder recipients.
 5. Install dependencies:
 
 ```bash
@@ -142,8 +142,7 @@ Get-Content .\logs\gmail_email_tool.log -Tail 100
 
 - `missing OAuth credentials`: confirm `GMAIL_OAUTH_CLIENT_SECRET_FILE` or `GMAIL_OAUTH_CLIENT_SECRET_JSON` is set correctly.
 - `invalid_grant` or refresh failures: delete the local token file and rerun `gmail-email-tool bootstrap-oauth`.
-- `recipient placeholders still configured`: update `DEFAULT_RECIPIENTS` in [config.py](C:/Users/jerem/Forecast/gmail_email_tool/src/gmail_email_tool/config.py).
+- `recipient placeholders still configured`: update `DEFAULT_RECIPIENTS` in [config.py](C:/Users/jerem/Forecast/backend/tools/gmail_email_tool/src/gmail_email_tool/config.py).
 - `attachment rejected`: make sure the file exists and ends with `.png`.
 - `duplicate send skipped`: either use a new `idempotency_key` for a genuinely new send or change the content enough for a new computed fingerprint.
 - `insufficient Gmail permissions`: verify the token includes `https://www.googleapis.com/auth/gmail.send`.
-

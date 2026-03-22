@@ -1,0 +1,6 @@
+{
+  "subject": "Request for Healthcare Data Update for Vision 1 Million Scorecard",
+  "html_body": "<html><body><p>Dear Waterloo Regional Hospital Network team,</p><p>I hope you are well. I am reaching out to request an update on your health data for the healthcare category of the Vision 1 Million Scorecard.</p><p>We are currently reviewing the latest inputs for the scorecard and would appreciate any updated datasets, recent metrics, or revised figures you can share to help ensure the healthcare category reflects the most current information available.</p><p>If there are any changes in reporting timelines, data definitions, or source systems that we should be aware of, please feel free to include those details as well.</p><p>Thank you for your time and support. We appreciate your help in keeping the Vision 1 Million Scorecard accurate and up to date.</p><p>Sincerely,<br />Forecast Team</p></body></html>",
+  "attachment_png_path": "C:\\Users\\jerem\\Forecast\\backend\\tools\\gmail_email_tool\\images\\Screenshot_2026-03-22_at_3.13.54_PM.png",
+  "idempotency_key": "vision-1-million-healthcare-update-2026-03"
+}
