@@ -394,7 +394,6 @@ if __name__ == "__main__":
         "WRHN Midtown",
         "WRHN Queen's",
         "Cambridge Memorial Hospital",
-        "Guelph General Hospital",
     )
     print("\n── Waterloo-Area ER Wait Times (er-watch.ca) ──────")
     for field, value in er.items():
