@@ -1,10 +1,12 @@
 # Forecast
 
+
+[![IMAGE ALT TEXT](frontend/components/ui/Flowchart.png)](https://youtu.be/kpfmfqEFT5E)
+
 Forecast is a prototype automation platform for the Future Cities Institute's Vision One Million Scorecard. It is designed to reduce the manual work required to update Waterloo Region's readiness scorecard across five sectors: housing, transportation, healthcare, employment, and placemaking.
 
 The codebase addresses this problem by automating the collection, normalization, scoring, storage, and review of civic datasets that are currently gathered through a slow and error-prone manual process. The goal is to turn a six-month spreadsheet-driven refresh cycle into a maintainable, auditable data pipeline with transparent scoring and review workflows.
 
-![Forecast system flowchart](frontend/components/ui/Flowchart.png)
 
 ## Problem Alignment
 
