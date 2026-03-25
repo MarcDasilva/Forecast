@@ -4,6 +4,7 @@
 [![IMAGE ALT TEXT](frontend/components/ui/Flowchart.png)](https://youtu.be/kpfmfqEFT5E)
 
 ## Click on me above ^^^
+[Demo Link](https://forecast-fci.vercel.app) 
 
 Forecast is a prototype automation platform for the Future Cities Institute's Vision One Million Scorecard. It is designed to reduce the manual work required to update Waterloo Region's readiness scorecard across five sectors: housing, transportation, healthcare, employment, and placemaking.
 
